@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json.schemastore.org/angular-cli",
+  "version": 1,
+  "projects": {
+    "chat_UI_new": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "architect": {
+        "build": {
+          "builder": "@angular-devkit/build-angular:browser",
+          "options": {
+            "outputPath": "dist/chat_UI_new",
+            "index": "src/index.html",
+            "main": "src/main.ts",
+            "polyfills": "src/polyfills.ts",
+            "tsConfig": "tsconfig.app.json",
+            "assets": [
+              "src/favicon.ico",
+              "src/assets"
+            ],
+            "styles": [
+              "src/styles.css"
+            ],
+            "scripts": [],
+            "optimization": false,
+            "buildOptimizer": false,
+            "vendorChunk": true,
+            "namedChunks": true,
+            "sourceMap": true
+          },
+          "configurations": {
+            "production": {
+              "outputHashing": "all",
+              "optimization": true,
+              "buildOptimizer": true,
+              "sourceMap": false
+            }
+          }
+        },
+        "serve": {
+          "builder": "@angular-devkit/build-angular:dev-server",
+          "options": {
+            "browserTarget": "chat_UI_new:build",
+            "hmr": false
+          },
+          "configurations": {
+            "production": {
+              "browserTarget": "chat_UI_new:build:production"
+            }
+          }
+        }
+      }
+    }
+  },
+  "defaultProject": "chat_UI_new"
+}
