@@ -5,6 +5,7 @@ import { FormsModule } from '@angular/forms';
 type Kind = 'feature' | 'rule' | 'dataset' | 'analysis' | 'workflow' | 'other';
 type AgentStatus = 'Running' | 'Completed' | 'Stopped' | 'Idle';
 type EntityStatus = 'Accepted' | 'Pending' | 'Expired';
+type ViewMode = 'user' | 'admin';
 
 interface ChatSummaryItem {
   id: string;
@@ -62,6 +63,8 @@ interface ChatItem {
   summary: string;
   updatedAt: Date;
   pendingCount?: number;
+  ownerId: string;
+  ownerName: string;
 }
 
 @Component({
@@ -72,12 +75,22 @@ interface ChatItem {
   <div class="app-shell" [class.preview-open]="previewOpen">
     <!-- LEFT: History -->
     <aside class="left-rail">
+      <!-- Tabs -->
+      <div class="tabs">
+        <button class="tab" [class.active]="viewMode==='user'" (click)="setViewMode('user')">User</button>
+        <button class="tab" [class.active]="viewMode==='admin'" [disabled]="!isAdmin" (click)="setViewMode('admin')">
+          Admin
+          <span *ngIf="!isAdmin" class="tab-lock" title="You are not authorized">🔒</span>
+        </button>
+      </div>
+
       <div class="left-rail-header">
-        <button class="btn btn-primary" (click)="newChat()">+ New Chat</button>
+        <button class="btn btn-primary" *ngIf="viewMode==='user'" (click)="newChat()">+ New Chat</button>
         <div class="search-wrap">
           <input [(ngModel)]="historySearch" (input)="filterHistory()" placeholder="Search chats" />
         </div>
       </div>
+
       <div class="history-list">
         <div *ngFor="let c of filteredHistory"
              class="history-item"
@@ -95,6 +108,14 @@ interface ChatItem {
             <div class="timestamp">{{ c.updatedAt | date:'MM/dd HH:mm' }}</div>
           </div>
           <div class="summary-line" [title]="c.summary">{{ c.summary }}</div>
+          <div class="owner-line" *ngIf="viewMode==='admin'">
+            <span class="owner-chip">👤 {{ c.ownerName }}</span>
+          </div>
+        </div>
+
+        <div *ngIf="!filteredHistory.length" class="empty-hint">
+          <div *ngIf="viewMode==='user'">No chats yet. Click <b>+ New Chat</b> to start.</div>
+          <div *ngIf="viewMode==='admin'">No team chats found.</div>
         </div>
       </div>
     </aside>
@@ -234,9 +255,7 @@ interface ChatItem {
                 </div>
               </div>
 
-              <!-- FOLLOW-UP COMPOSER (new):
-                   If user stopped this sub-agent OR denied its last request,
-                   allow more prompt to refine and retry this sub-agent only. -->
+              <!-- FOLLOW-UP COMPOSER -->
               <div class="followup-wrap" *ngIf="canFollowUp(sa)">
                 <textarea [(ngModel)]="sa.userPrompt"
                           rows="2"
@@ -333,6 +352,12 @@ interface ChatItem {
 
     /* Left rail */
     .left-rail { border-right:1px solid #e5e7eb; padding:10px; overflow:hidden; display:flex; flex-direction:column; background:#fff; }
+    .tabs { display:flex; gap:8px; margin-bottom:8px; }
+    .tab { flex:0 0 auto; border:1px solid #e5e7eb; background:#f8fafc; border-radius:999px; padding:6px 10px; font-size:12px; cursor:pointer; }
+    .tab.active { background:#eef2ff; border-color:#c7d2fe; color:#1f2a7a; font-weight:600; }
+    .tab[disabled] { opacity:.5; cursor:not-allowed; }
+    .tab-lock { margin-left:6px; }
+
     .left-rail-header { display:flex; gap:8px; align-items:center; }
     .search-wrap { flex:1; }
     .search-wrap input { width:100%; padding:6px 8px; border:1px solid #e5e7eb; border-radius:8px; font-size:12px; }
@@ -345,6 +370,8 @@ interface ChatItem {
     .pending-badge { display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px; padding:0 5px; font-size:11px; font-weight:700; color:#fff; background:#ef4444; border-radius:12px; line-height:1; }
     .timestamp { font-size:11px; color:#64748b; margin-left:auto; }
     .summary-line { margin-top:4px; font-size:12px; color:#475569; line-height:1.25; height:2.5em; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient: vertical; }
+    .owner-line { margin-top:6px; }
+    .owner-chip { font-size:11px; background:#f1f5f9; border:1px solid #e5e7eb; padding:2px 8px; border-radius:999px; color:#334155; }
 
     /* Preview & DV styling */
     .preview-pane { border-right:1px solid #e5e7eb; background:#fafafa; padding:12px; overflow:auto; }
@@ -459,14 +486,21 @@ interface ChatItem {
   `]
 })
 export class ChatWorkbenchComponent {
+  /* auth + view mode */
+  currentUserId = 'u_self';
+  currentUserName = 'You';
+  isAdmin = true; // flip to false to test non-admin
+  viewMode: ViewMode = 'user';
+
   /* left rail */
   historySearch = '';
+
   history: ChatItem[] = [
-    { id: 'c1', title: '24h total amount feature', summary: 'Created aggregation feature, drafted velocity rule, and prepared dataset sample for QA and backtesting insights.', updatedAt: new Date() },
-    { id: 'c2', title: 'High-velocity ACH rule tuning', summary: 'Adjusted thresholds, added watchlist action; compared lift across cohorts and performed cross-validation on last 30 days.', updatedAt: new Date(Date.now() - 86400000), pendingCount: 0 },
-    { id: 'c3', title: 'Profile transformer ideas', summary: 'Outlined embeddings & clustering; proposed features for device linkage and time-of-day anomalies with ablations.', updatedAt: new Date(Date.now() - 3*86400000), pendingCount: 2 },
+    { id: 'c1', title: '24h total amount feature', summary: 'Created aggregation feature, drafted velocity rule, and prepared dataset sample for QA and backtesting insights.', updatedAt: new Date(), ownerId: 'u_self', ownerName: 'You' },
+    { id: 'c2', title: 'High-velocity ACH rule tuning', summary: 'Adjusted thresholds, added watchlist action; compared lift across cohorts and performed cross-validation on last 30 days.', updatedAt: new Date(Date.now() - 86400000), pendingCount: 0, ownerId: 'u_alex', ownerName: 'Alex Chen' },
+    { id: 'c3', title: 'Profile transformer ideas', summary: 'Outlined embeddings & clustering; proposed features for device linkage and time-of-day anomalies with ablations.', updatedAt: new Date(Date.now() - 3*86400000), pendingCount: 2, ownerId: 'u_mei', ownerName: 'Mei Li' },
   ];
-  filteredHistory: ChatItem[] = [...this.history];
+  filteredHistory: ChatItem[] = [];
   activeChatId = 'c1';
   get activeChat(): ChatItem | undefined { return this.history.find(h => h.id === this.activeChatId); }
 
@@ -530,23 +564,58 @@ export class ChatWorkbenchComponent {
     { id: 's1', label: 'Started: Fraud Pattern Analysis', kind: 'analysis', anchorId: 'anchor-r1', time: new Date() }
   ];
 
-  /* history */
-  filterHistory() {
-    const q = this.historySearch.toLowerCase();
-    this.filteredHistory = this.history.filter(h => (h.title + ' ' + h.summary).toLowerCase().includes(q));
+  constructor() {
+    this.computeFilteredHistory();
+    if (!this.filteredHistory.find(c => c.id === this.activeChatId)) {
+      this.activeChatId = this.filteredHistory[0]?.id ?? '';
+    }
   }
+
+  /* tabs */
+  setViewMode(mode: ViewMode) {
+    if (mode === 'admin' && !this.isAdmin) return;
+    this.viewMode = mode;
+    this.computeFilteredHistory();
+    // ensure active chat is visible
+    if (!this.filteredHistory.find(c => c.id === this.activeChatId)) {
+      this.activeChatId = this.filteredHistory[0]?.id ?? '';
+    }
+  }
+
+  /* history */
+  filterHistory() { this.computeFilteredHistory(); }
+  private computeFilteredHistory() {
+    const q = this.historySearch.toLowerCase().trim();
+    const scope = this.viewMode === 'user'
+      ? this.history.filter(h => h.ownerId === this.currentUserId)
+      : this.history; // admin sees all
+    this.filteredHistory = scope.filter(h => {
+      const hay = (h.title + ' ' + h.summary + ' ' + h.ownerName).toLowerCase();
+      return !q || hay.includes(q);
+    }).sort((a,b) => +b.updatedAt - +a.updatedAt);
+  }
+
   selectChat(id: string) { this.activeChatId = id; }
+
   newChat() {
     const id = 'c' + (this.history.length + 1);
     const item: ChatItem = {
-      id, title: 'New Chat',
+      id,
+      title: 'New Chat',
       summary: 'Kicked off a fresh orchestration to create features, rules, and datasets for investigation.',
-      updatedAt: new Date(), pendingCount: 1
+      updatedAt: new Date(),
+      pendingCount: 1,
+      ownerId: this.currentUserId,
+      ownerName: this.currentUserName
     };
-    this.history.unshift(item); this.filteredHistory = [...this.history]; this.activeChatId = id;
+    this.history.unshift(item);
+    this.computeFilteredHistory();
+    this.activeChatId = id;
   }
+
   getPendingCountForChat(chat: ChatItem): number {
     if (chat.id !== this.activeChatId) return chat.pendingCount || 0;
+    // Active chat: compute live pending count
     return this.allEntities().filter(e => !e.saved && !e.expired).length;
   }
 
@@ -574,10 +643,13 @@ export class ChatWorkbenchComponent {
   copyPrompt() { const text = this.prompt || ''; navigator.clipboard?.writeText(text).catch(() => {}); }
 
   /* preview */
+  previewOpen = false;
+  previewEntity?: Entity;
   openPreview(e: Entity) { this.previewEntity = e; this.previewOpen = true; }
   closePreview() { this.previewOpen = false; this.previewEntity = undefined; }
 
   /* summary drawer */
+  showSummary = false;
   toggleSummary(next?: boolean) { this.showSummary = typeof next === 'boolean' ? next : !this.showSummary; }
   scrollToAnchor(anchorId: string) { const el = document.getElementById(anchorId); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
   getSummaryStatus(s: ChatSummaryItem): EntityStatus {
@@ -618,7 +690,7 @@ export class ChatWorkbenchComponent {
           id: 'sum-' + sa.id, label: 'Feature generated: AverageCheckAmount365', kind: 'feature',
           anchorId: run.anchorId, createdEntityId: sa.generatedEntities[0].id, status: 'Pending', time: new Date()
         });
-        setTimeout(() => { sa.status = 'Completed'; this.maybeRevealNext(run, sa); this.updatePendingBadge(); }, 400);
+        setTimeout(() => { sa.status = 'Completed'; this.maybeRevealNext(run, sa); this.updatePendingBadge(); this.bumpActiveChatTimestamp(); }, 400);
       } else if (sa.name.toLowerCase().includes('rule creator')) {
         sa.response = 'Drafted rule: RTP Outgoing Amount & Frequency (10d)';
         sa.generatedEntities = [{
@@ -635,11 +707,13 @@ export class ChatWorkbenchComponent {
         sa.status = 'Completed';
         this.maybeRevealNext(run, sa);
         this.updatePendingBadge();
+        this.bumpActiveChatTimestamp();
       } else if (sa.name.toLowerCase().includes('rule test')) {
         sa.response = 'Backtest complete: precision=0.42, recall=0.68, lift=1.9x vs. baseline.';
         sa.generatedEntities = [];
         sa.status = 'Completed';
         this.updatePendingBadge();
+        this.bumpActiveChatTimestamp();
       }
     }, 500);
   }
@@ -672,7 +746,7 @@ export class ChatWorkbenchComponent {
     sa.expanded = true;
     sa.revealed = true;
 
-    // Log in summary
+    // Log in summary & update timestamps/badges
     this.summary.unshift({
       id: 'fu-' + sa.id + '-' + Date.now(),
       label: `User follow-up to ${sa.name}`,
@@ -680,6 +754,8 @@ export class ChatWorkbenchComponent {
       anchorId: run.anchorId,
       time: new Date()
     });
+    this.bumpActiveChatTimestamp();
+    this.updatePendingBadge();
   }
 
   /* Sequential reveal:
@@ -744,6 +820,10 @@ export class ChatWorkbenchComponent {
   private updatePendingBadge() {
     const active = this.history.find(h => h.id === this.activeChatId);
     if (active) active.pendingCount = this.allEntities().filter(x => !x.saved && !x.expired).length;
+  }
+  private bumpActiveChatTimestamp() {
+    const active = this.history.find(h => h.id === this.activeChatId);
+    if (active) { active.updatedAt = new Date(); this.computeFilteredHistory(); }
   }
   private findEntityById(id: string): Entity | undefined {
     for (const r of this.runs) for (const sa of r.subAgents) {
