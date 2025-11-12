@@ -48,9 +48,8 @@ interface ChatItem {
   id: string;
   title: string;
   summary: string;
-  status: 'Active' | 'Completed' | 'Stopped';
   updatedAt: Date;
-  pending?: boolean; // for non-active chats; active chat is computed live
+  pendingCount?: number; // for non-active chats; active chat computed live
 }
 
 @Component({
@@ -76,13 +75,12 @@ interface ChatItem {
         >
           <div class="title-row">
             <div class="title" [title]="c.title">
-              <span *ngIf="chatHasPending(c)" class="pending-ico" title="Pending items">⏳</span>
               {{ c.title }}
+              <span *ngIf="getPendingCountForChat(c) > 0" class="pending-badge" [title]="getPendingCountForChat(c) + ' pending'">
+                {{ getPendingCountForChat(c) > 99 ? '99+' : getPendingCountForChat(c) }}
+              </span>
             </div>
             <div class="timestamp">{{ c.updatedAt | date:'MM/dd HH:mm' }}</div>
-          </div>
-          <div class="meta-row">
-            <span class="chat-status" [class.stopped]="c.status==='Stopped'">{{ c.status }}</span>
           </div>
           <div class="summary-line" [title]="c.summary">{{ c.summary }}</div>
         </div>
@@ -205,16 +203,18 @@ interface ChatItem {
                   <div class="entity-head">
                     <span class="pill">{{ e.type | titlecase }}</span>
                     <span class="entity-name">{{ e.name }}</span>
+                    <!-- Status chip RIGHT NEXT to entity name -->
+                    <span class="status-chip"
+                          [class.pending]="!e.saved && !e.expired"
+                          [class.expired]="e.expired"
+                          [class.accepted]="e.saved">
+                      <span class="ico">{{ e.expired ? '⌛' : (e.saved ? '✅' : '⏳') }}</span>
+                      {{ e.expired ? 'Expired' : (e.saved ? 'Accepted' : 'Pending') }}
+                    </span>
                     <span class="spacer"></span>
                     <button class="chip micro" (click)="openPreview(e)">👁 Preview</button>
                   </div>
                   <div class="entity-actions">
-                    <span class="status-chip" [class.pending]="!e.saved && !e.expired" [class.expired]="e.expired" [class.accepted]="e.saved">
-                      <span class="ico">
-                        {{ e.expired ? '⌛' : (e.saved ? '✅' : '⏳') }}
-                      </span>
-                      {{ e.expired ? 'Expired' : (e.saved ? 'Accepted' : 'Pending') }}
-                    </span>
                     <button class="chip chip-primary micro" *ngIf="!e.saved && !e.expired" (click)="acceptEntity(e)">✔ Accept</button>
                     <button class="chip chip-danger micro" *ngIf="!e.saved && !e.expired" (click)="rejectEntity(e)">✖ Reject</button>
                     <a class="btn-link small" *ngIf="e.saved && e.platformUrl" [href]="e.platformUrl" target="_blank">View in Platform ↗</a>
@@ -250,7 +250,7 @@ interface ChatItem {
               <a href="#" class="tl-label" (click)="scrollToAnchor(s.anchorId); $event.preventDefault(); toggleSummary(false)">
                 {{ s.label }}
               </a>
-              <div class="tl-actions" *ngIf="s.createdEntityId">
+              <div class="tl-actions" *ngIf="s.createdEntityId || s.status">
                 <span class="status-chip"
                       [class.pending]="getSummaryStatus(s)==='Pending'"
                       [class.accepted]="getSummaryStatus(s)==='Accepted'"
@@ -274,9 +274,14 @@ interface ChatItem {
             <div class="col type">
               <span class="pill">{{ e.type | titlecase }}</span>
             </div>
-            <div class="col name">{{ e.name }}</div>
+            <div class="col name">
+              <span class="entity-name">{{ e.name }}</span>
+            </div>
             <div class="col status">
-              <span class="status-chip" [class.pending]="!e.saved && !e.expired" [class.expired]="e.expired" [class.accepted]="e.saved">
+              <span class="status-chip"
+                    [class.pending]="!e.saved && !e.expired"
+                    [class.expired]="e.expired"
+                    [class.accepted]="e.saved">
                 <span class="ico">{{ e.expired ? '⌛' : (e.saved ? '✅' : '⏳') }}</span>
                 {{ e.expired ? 'Expired' : (e.saved ? 'Accepted' : 'Pending') }}
               </span>
@@ -319,10 +324,7 @@ interface ChatItem {
     .history-item.active { background:#eef2ff; border-color:#c7d2fe; }
     .title-row { display:flex; align-items:center; gap:8px; }
     .title { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:6px; }
-    .pending-ico { font-size:12px; }
-    .meta-row { margin-top:4px; }
-    .chat-status { font-size:11px; color:#475569; background:#e2e8f0; padding:2px 8px; border-radius:999px; }
-    .chat-status.stopped { background:#fee2e2; color:#991b1b; }
+    .pending-badge { display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px; padding:0 5px; font-size:11px; font-weight:700; color:#fff; background:#ef4444; border-radius:12px; line-height:1; }
     .timestamp { font-size:11px; color:#64748b; margin-left:auto; }
     .summary-line { margin-top:4px; font-size:12px; color:#475569; line-height:1.25; height:2.5em; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient: vertical; }
 
@@ -379,12 +381,17 @@ interface ChatItem {
     .entity-head { display:flex; align-items:center; gap:8px; }
     .pill { background:#e2e8f0; font-size:10px; padding:2px 6px; border-radius:99px; }
     .entity-name { font-weight:700; font-size:13px; }
-    .entity-actions { display:flex; gap:8px; margin-top:6px; align-items:center; }
-    .status-chip { display:inline-flex; align-items:center; gap:6px; background:#e2e8f0; border-radius:999px; padding:2px 10px; font-size:11px; }
+    .status-chip { display:inline-flex; align-items:center; gap:6px; border-radius:999px; padding:2px 10px; font-size:11px; }
     .status-chip.pending { background:#fee4cb; color:#9a3412; }
     .status-chip.accepted { background:#dcfce7; color:#166534; }
-    .status-chip.expired { background:#e5e7eb; color:#334155; }
+    .status-chip.expired { background:#e2e8f0; color:#334155; }
     .status-chip .ico { font-size:12px; }
+    .entity-actions { display:flex; gap:8px; margin-top:6px; align-items:center; }
+    /* Action chips remain outlined to visually differ from status chips */
+    .chip { border:1px solid #e5e7eb; background:#f8fafc; border-radius:999px; padding:4px 10px; font-size:12px; cursor:pointer; }
+    .chip.micro { padding:2px 8px; font-size:11px; }
+    .chip-primary { background:#eef2ff; border-color:#c7d2fe; color:#3730a3; }
+    .chip-danger { background:#fee2e2; border-color:#fecaca; color:#991b1b; }
 
     .stopped-notice { margin-top:8px; background:#f1f5f9; padding:6px 8px; border-radius:8px; color:#0f172a; font-size:12px; }
 
@@ -426,11 +433,6 @@ interface ChatItem {
     .btn.btn-primary { background:#4f46e5; color:#fff; border-color:#4f46e5; }
     .btn.btn-ghost { background:transparent; border-color:transparent; color:#0f172a; }
     .btn-link { border:none; background:transparent; color:#4f46e5; cursor:pointer; text-decoration:none; font-size:12px; }
-    .chip { border:1px solid #e5e7eb; background:#f8fafc; border-radius:999px; padding:4px 10px; font-size:12px; cursor:pointer; }
-    .chip.micro { padding:2px 8px; font-size:11px; }
-    .chip:hover { filter:brightness(0.98); }
-    .chip-primary { background:#eef2ff; border-color:#c7d2fe; color:#3730a3; }
-    .chip-danger { background:#fee2e2; border-color:#fecaca; color:#991b1b; }
     .spacer { flex:1; }
 
     @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
@@ -440,9 +442,9 @@ export class ChatWorkbenchComponent {
   /* left rail */
   historySearch = '';
   history: ChatItem[] = [
-    { id: 'c1', title: '24h total amount feature', summary: 'Created aggregation feature, drafted velocity rule, and prepared dataset sample for QA and backtesting insights.', status: 'Active', updatedAt: new Date() },
-    { id: 'c2', title: 'High-velocity ACH rule tuning', summary: 'Adjusted thresholds, added watchlist action; compared lift across cohorts and performed cross-validation on last 30 days.', status: 'Completed', updatedAt: new Date(Date.now() - 86400000) },
-    { id: 'c3', title: 'Profile transformer ideas', summary: 'Outlined embeddings & clustering; proposed features for device linkage and time-of-day anomalies with ablations.', status: 'Stopped', updatedAt: new Date(Date.now() - 3*86400000), pending: false },
+    { id: 'c1', title: '24h total amount feature', summary: 'Created aggregation feature, drafted velocity rule, and prepared dataset sample for QA and backtesting insights.', updatedAt: new Date() },
+    { id: 'c2', title: 'High-velocity ACH rule tuning', summary: 'Adjusted thresholds, added watchlist action; compared lift across cohorts and performed cross-validation on last 30 days.', updatedAt: new Date(Date.now() - 86400000), pendingCount: 0 },
+    { id: 'c3', title: 'Profile transformer ideas', summary: 'Outlined embeddings & clustering; proposed features for device linkage and time-of-day anomalies with ablations.', updatedAt: new Date(Date.now() - 3*86400000), pendingCount: 2 },
   ];
   filteredHistory: ChatItem[] = [...this.history];
   activeChatId = 'c1';
@@ -485,7 +487,16 @@ export class ChatWorkbenchComponent {
     ]
   }];
 
+  // Seed summary with a very old Expired item to illustrate auto-removal (>7 days)
   summary: ChatSummaryItem[] = [
+    {
+      id: 's_old',
+      label: 'Old rule draft (auto-expire example)',
+      kind: 'rule',
+      anchorId: 'anchor-r1',
+      status: 'Expired',
+      time: new Date(Date.now() - 9 * 86400000) // 9 days ago
+    },
     { id: 's1', label: 'Started: Fraud Pattern Analysis', kind: 'analysis', anchorId: 'anchor-r1', time: new Date() }
   ];
 
@@ -500,14 +511,14 @@ export class ChatWorkbenchComponent {
     const item: ChatItem = {
       id, title: 'New Chat',
       summary: 'Kicked off a fresh orchestration to create features, rules, and datasets for investigation.',
-      status: 'Active', updatedAt: new Date(), pending: true
+      updatedAt: new Date(), pendingCount: 1
     };
     this.history.unshift(item); this.filteredHistory = [...this.history]; this.activeChatId = id;
   }
-  chatHasPending(chat: ChatItem): boolean {
-    if (chat.id !== this.activeChatId) return !!chat.pending;
-    // For active chat: compute from live entities
-    return this.allEntities().some(e => !e.saved && !e.expired);
+  getPendingCountForChat(chat: ChatItem): number {
+    if (chat.id !== this.activeChatId) return chat.pendingCount || 0;
+    // Active chat: compute live pending count
+    return this.allEntities().filter(e => !e.saved && !e.expired).length;
   }
 
   /* prompt */
@@ -540,7 +551,7 @@ export class ChatWorkbenchComponent {
   toggleSummary(next?: boolean) { this.showSummary = typeof next === 'boolean' ? next : !this.showSummary; }
   scrollToAnchor(anchorId: string) { const el = document.getElementById(anchorId); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
   getSummaryStatus(s: ChatSummaryItem): EntityStatus {
-    if (!s.createdEntityId) return 'Accepted';
+    if (!s.createdEntityId) return s.status || 'Expired';
     const e = this.findEntityById(s.createdEntityId);
     if (!e) return s.status || 'Expired';
     if (e.expired) return 'Expired';
@@ -553,8 +564,6 @@ export class ChatWorkbenchComponent {
   stopRun(run: AgentRun) {
     run.status = 'Stopped';
     run.subAgents.forEach(sa => { if (sa.status === 'Running' || sa.status === 'Idle') sa.status = 'Stopped'; });
-    const active = this.history.find(h => h.id === this.activeChatId);
-    if (active) active.status = 'Stopped';
   }
   stopSubAgent(sa: SubAgent) { if (sa.status === 'Running') sa.status = 'Stopped'; }
 
@@ -591,8 +600,9 @@ export class ChatWorkbenchComponent {
         });
       }
       sa.status = 'Completed';
+      // update active chat badge
       const active = this.history.find(h => h.id === this.activeChatId);
-      if (active) active.pending = this.allEntities().some(e => !e.saved && !e.expired);
+      if (active) active.pendingCount = this.allEntities().filter(e => !e.saved && !e.expired).length;
     }, 500);
   }
   denySubAgent(sa: SubAgent) {
@@ -610,16 +620,16 @@ export class ChatWorkbenchComponent {
     const s = this.summary.find(x => x.createdEntityId === e.id);
     if (s) s.status = 'Accepted';
     const active = this.history.find(h => h.id === this.activeChatId);
-    if (active) active.pending = this.allEntities().some(x => !x.saved && !x.expired);
+    if (active) active.pendingCount = this.allEntities().filter(x => !x.saved && !x.expired).length;
   }
   rejectEntity(e: Entity) {
-    // Mark as expired (kept in the list for traceability, preview disabled by status chips)
+    // Mark as expired (kept in the list for traceability)
     e.saved = false; e.expired = true;
     const s = this.summary.find(x => x.createdEntityId === e.id);
     if (s) s.status = 'Expired';
     if (this.previewEntity?.id === e.id) this.closePreview();
     const active = this.history.find(h => h.id === this.activeChatId);
-    if (active) active.pending = this.allEntities().some(x => !x.saved && !x.expired);
+    if (active) active.pendingCount = this.allEntities().filter(x => !x.saved && !x.expired).length;
   }
 
   /* end-of-chat table helper */
