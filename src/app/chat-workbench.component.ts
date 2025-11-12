@@ -21,8 +21,7 @@ interface Entity {
   description?: string;
   saved: boolean;      // true = Accepted
   preview?: any;
-  editUrl?: string;
-  platformUrl?: string;
+  platformUrl?: string; // external “View in Platform”
 }
 interface SubAgent {
   id: string;
@@ -31,6 +30,7 @@ interface SubAgent {
   expanded?: boolean;
   needsApproval?: boolean;
   approvalAsked?: boolean;
+  thinking?: string;         // << added
   response?: string;
   generatedEntities?: Entity[];
 }
@@ -130,7 +130,6 @@ interface ChatItem {
           <button class="chip chip-primary" *ngIf="!p.saved" (click)="acceptEntity(p)">✔ Accept</button>
           <button class="chip chip-danger" *ngIf="!p.saved" (click)="revertEntity(p)">↶ Revert</button>
           <a class="btn-link" *ngIf="p.saved && p.platformUrl" [href]="p.platformUrl" target="_blank">View in Platform ↗</a>
-          <a class="btn-link" *ngIf="p.saved && p.editUrl" [href]="p.editUrl" target="_blank">Open in Editor ↗</a>
         </div>
       </div>
     </section>
@@ -139,7 +138,7 @@ interface ChatItem {
     <main class="chat-pane">
       <header class="main-header">
         <div class="chat-title">{{ activeChat?.title }}</div>
-        <button class="chip chip-danger" *ngIf="anyRunRunning()" title="Stop all" (click)="stopMain()">■</button>
+        <button class="icon-btn danger" *ngIf="anyRunRunning()" title="Stop all" (click)="stopMain()">■</button>
       </header>
 
       <!-- Agent Runs -->
@@ -163,11 +162,12 @@ interface ChatItem {
               <div class="subagent-title">
                 {{ sa.name }}
                 <span class="status micro">{{ sa.status }}</span>
-                <!-- If something was generated, surface Preview chip near title -->
+                <!-- Inline Stop next to name -->
+                <button class="icon-btn danger xs" *ngIf="sa.status==='Running'" (click)="stopSubAgent(sa)" title="Stop this sub-agent">■</button>
+                <!-- If something was generated, surface Preview near title -->
                 <button class="chip micro" *ngIf="sa.generatedEntities?.length" (click)="openPreview(sa.generatedEntities![0])" title="Preview first result">👁 Preview</button>
               </div>
               <div class="spacer"></div>
-              <button class="icon-btn danger" *ngIf="sa.status==='Running'" (click)="stopSubAgent(sa)" title="Stop this sub-agent">■</button>
             </div>
 
             <!-- Approval first -->
@@ -181,6 +181,11 @@ interface ChatItem {
 
             <!-- Body -->
             <div class="subagent-body" *ngIf="sa.expanded">
+              <div class="thinking-line" *ngIf="sa.thinking">
+                <span class="bulb">💡</span>
+                <span>{{ sa.thinking }}</span>
+              </div>
+
               <div class="thinking" *ngIf="sa.response">{{ sa.response }}</div>
 
               <div class="entities" *ngIf="sa.generatedEntities?.length">
@@ -195,7 +200,6 @@ interface ChatItem {
                     <button class="chip chip-primary micro" *ngIf="!e.saved" (click)="acceptEntity(e)">✔ Accept</button>
                     <button class="chip chip-danger micro" *ngIf="!e.saved" (click)="revertEntity(e)">↶ Revert</button>
                     <a class="btn-link small" *ngIf="e.saved && e.platformUrl" [href]="e.platformUrl" target="_blank">View in Platform ↗</a>
-                    <a class="btn-link small" *ngIf="e.saved && e.editUrl" [href]="e.editUrl" target="_blank">Open in Editor ↗</a>
                   </div>
                 </div>
               </div>
@@ -227,7 +231,10 @@ interface ChatItem {
               </div>
               <a href="#" class="tl-label" (click)="scrollToAnchor(s.anchorId); $event.preventDefault(); toggleSummary(false)">{{ s.label }}</a>
               <div class="tl-actions" *ngIf="s.createdEntityId">
-                <span class="tag" [class.unaccepted]="!s.isSaved">{{ s.isSaved ? 'Accepted' : 'Unaccepted' }}</span>
+                <span class="status-chip" [class.unaccepted]="!s.isSaved">
+                  <span class="ico">{{ s.isSaved ? '✅' : '⏳' }}</span>
+                  {{ s.isSaved ? 'Accepted' : 'Unaccepted' }}
+                </span>
                 <button class="chip chip-danger micro" *ngIf="!s.isSaved" (click)="revertActivity(s)">↶ Revert</button>
               </div>
             </div>
@@ -238,23 +245,26 @@ interface ChatItem {
       <!-- End-of-convo entity list -->
       <section class="entity-summary" *ngIf="allEntities().length">
         <div class="summary-header">Entities created in this conversation</div>
-        <table>
-          <thead><tr><th>Type</th><th>Name</th><th>Status</th><th>Actions</th></tr></thead>
-          <tbody>
-            <tr *ngFor="let e of allEntities()">
-              <td>{{ e.type | titlecase }}</td>
-              <td>{{ e.name }}</td>
-              <td><span class="tag" [class.unaccepted]="!e.saved">{{ e.saved ? 'Accepted' : 'Unaccepted' }}</span></td>
-              <td>
-                <button class="chip micro" (click)="openPreview(e)">👁 Preview</button>
-                <button class="chip chip-primary micro" *ngIf="!e.saved" (click)="acceptEntity(e)">✔ Accept</button>
-                <button class="chip chip-danger micro" *ngIf="!e.saved" (click)="removeEntityEverywhere(e)">↶ Revert</button>
-                <a class="btn-link small" *ngIf="e.saved && e.platformUrl" [href]="e.platformUrl" target="_blank">View in Platform ↗</a>
-                <a class="btn-link small" *ngIf="e.saved && e.editUrl" [href]="e.editUrl" target="_blank">Open in Editor ↗</a>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="entity-grid">
+          <div class="entity-row" *ngFor="let e of allEntities()">
+            <div class="col type">
+              <span class="pill">{{ e.type | titlecase }}</span>
+            </div>
+            <div class="col name">{{ e.name }}</div>
+            <div class="col status">
+              <span class="status-chip" [class.unaccepted]="!e.saved">
+                <span class="ico">{{ e.saved ? '✅' : '⏳' }}</span>
+                {{ e.saved ? 'Accepted' : 'Unaccepted' }}
+              </span>
+            </div>
+            <div class="col actions">
+              <button class="chip micro" (click)="openPreview(e)">👁 Preview</button>
+              <button class="chip chip-primary micro" *ngIf="!e.saved" (click)="acceptEntity(e)">✔ Accept</button>
+              <button class="chip chip-danger micro" *ngIf="!e.saved" (click)="removeEntityEverywhere(e)">↶ Revert</button>
+              <a class="btn-link small" *ngIf="e.saved && e.platformUrl" [href]="e.platformUrl" target="_blank">View in Platform ↗</a>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- Global Prompt Composer (icon-only actions) -->
@@ -328,9 +338,13 @@ interface ChatItem {
     .subagent-header { display:flex; align-items:center; gap:8px; padding:6px 8px; }
     .subagent-title { font-weight:600; font-size:13px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
     .expander { border:none; background:transparent; font-size:16px; cursor:pointer; }
+
     .approval-row { display:flex; justify-content:space-between; align-items:center; padding:8px 10px; font-size:12px; background:#fffbeb; border-top:1px dashed #f59e0b; border-bottom:1px dashed #f59e0b; }
     .approval-actions { display:flex; gap:6px; }
     .subagent-body { border-top:1px dashed #e5e7eb; padding:8px 10px; display:grid; gap:8px; }
+    .thinking-line { display:flex; gap:6px; align-items:flex-start; font-size:12px; color:#334155; background:#f8fafc; border:1px solid #e5e7eb; padding:6px 8px; border-radius:8px; }
+    .thinking-line .bulb { opacity:.8; }
+
     .thinking { white-space:pre-wrap; color:#0f172a; font-size:12px; }
 
     .entities { display:grid; gap:8px; }
@@ -359,18 +373,28 @@ interface ChatItem {
     .tl-time { margin-left:auto; }
     .tl-label { display:block; margin-top:4px; font-weight:600; text-decoration:none; color:#111827; }
     .tl-actions { display:flex; gap:8px; margin-top:6px; align-items:center; }
-    .tag { font-size:11px; background:#e2e8f0; padding:2px 8px; border-radius:99px; }
-    .tag.unaccepted { background:#fee2e2; color:#991b1b; }
+    .status-chip { display:inline-flex; align-items:center; gap:6px; background:#e2e8f0; border-radius:999px; padding:2px 10px; font-size:11px; }
+    .status-chip.unaccepted { background:#fee2e2; color:#991b1b; }
+    .status-chip .ico { font-size:12px; }
 
-    /* Composer with icon buttons */
+    /* End-of-chat entity list */
+    .entity-summary { margin-top:12px; border:1px solid #e5e7eb; border-radius:12px; padding:12px; }
+    .entity-grid { display:grid; gap:10px; }
+    .entity-row { display:grid; grid-template-columns: 120px 1fr 160px 1fr; gap:12px; align-items:center; padding:8px 10px; border:1px solid #e5e7eb; border-radius:10px; background:#fff; }
+    .entity-row + .entity-row { }
+    .entity-row .col.name { font-weight:600; }
+    .entity-row .col.actions { display:flex; gap:8px; align-items:center; }
+
+    /* Composer */
     .composer-bottom { position:fixed; left:260px; right:0; bottom:0; background:#fff; border-top:1px solid #e5e7eb; padding:10px 16px; display:flex; gap:10px; align-items:flex-end; z-index:4; }
     .composer-bottom textarea { flex:1; resize:vertical; min-height:56px; padding:8px; border:1px solid #e5e7eb; border-radius:8px; font-size:13px; }
     .composer-actions { display:flex; gap:6px; }
     .icon-btn { width:32px; height:32px; display:inline-flex; align-items:center; justify-content:center; border:1px solid #e5e7eb; background:#f8fafc; border-radius:8px; font-size:14px; cursor:pointer; }
+    .icon-btn.xs { width:26px; height:26px; font-size:12px; padding:0; }
     .icon-btn:hover { filter:brightness(0.98); }
     .icon-btn.danger { background:#fee2e2; border-color:#fecaca; color:#991b1b; }
 
-    /* Buttons */
+    /* Buttons & chips */
     .btn { border:1px solid #e5e7eb; background:#fff; border-radius:8px; padding:6px 10px; cursor:pointer; font-size:12px; }
     .btn:hover { background:#f8fafc; }
     .btn.btn-primary { background:#4f46e5; color:#fff; border-color:#4f46e5; }
@@ -387,6 +411,7 @@ interface ChatItem {
   `]
 })
 export class ChatWorkbenchComponent {
+  /* left rail */
   historySearch = '';
   history: ChatItem[] = [
     { id: 'c1', title: '24h total amount feature', summary: 'Created agg feature & drafted velocity rule', updatedAt: new Date() },
@@ -397,22 +422,12 @@ export class ChatWorkbenchComponent {
   activeChatId = 'c1';
   get activeChat(): ChatItem | undefined { return this.history.find(h => h.id === this.activeChatId); }
 
+  /* chat state */
   prompt = '';
   previewOpen = false;
   previewEntity?: Entity;
   showSummary = false;
   now = new Date();
-  /** Collect all generated entities across all sub-agents (for end-of-chat table). */
-allEntities(): Entity[] {
-  const out: Entity[] = [];
-  this.runs.forEach(run =>
-    run.subAgents.forEach(sa =>
-      (sa.generatedEntities || []).forEach(e => out.push(e))
-    )
-  );
-  return out;
-}
-
 
   runs: AgentRun[] = [{
     id: 'r1',
@@ -421,8 +436,26 @@ allEntities(): Entity[] {
     status: 'Running',
     anchorId: 'anchor-r1',
     subAgents: [
-      { id: 'sa1', name: 'Feature Generator', status: 'Idle', expanded: false, needsApproval: true, approvalAsked: true, response: '' },
-      { id: 'sa2', name: 'Rule Drafting',   status: 'Idle', expanded: false, needsApproval: true, approvalAsked: true, response: '' }
+      {
+        id: 'sa1',
+        name: 'Feature Generator',
+        status: 'Idle',
+        expanded: false,
+        needsApproval: true,
+        approvalAsked: true,
+        thinking: 'Plan: compute 365d moving average per customer on check events; validate missing defaults and hotspot=off.',
+        response: ''
+      },
+      {
+        id: 'sa2',
+        name: 'Rule Drafting',
+        status: 'Idle',
+        expanded: false,
+        needsApproval: true,
+        approvalAsked: true,
+        thinking: 'Hypothesis: flag RTP when recent amount sum and frequency both exceed thresholds within 10d.',
+        response: ''
+      }
     ]
   }];
 
@@ -454,8 +487,8 @@ allEntities(): Entity[] {
       status: 'Running',
       anchorId,
       subAgents: [
-        { id: runId + '-a', name: 'Feature Generator', status: 'Idle', expanded: false, needsApproval: true, approvalAsked: true, response: '' },
-        { id: runId + '-b', name: 'Rule Drafting',   status: 'Idle', expanded: false, needsApproval: true, approvalAsked: true, response: '' }
+        { id: runId + '-a', name: 'Feature Generator', status: 'Idle', expanded: false, needsApproval: true, approvalAsked: true, thinking: 'Compute aggregate/velocity feature per user across 24h/365d windows.', response: '' },
+        { id: runId + '-b', name: 'Rule Drafting',   status: 'Idle', expanded: false, needsApproval: true, approvalAsked: true, thinking: 'Combine sum & frequency conditions with AND; start conservative thresholds.', response: '' }
       ]
     };
     this.runs.unshift(newRun);
@@ -495,8 +528,7 @@ allEntities(): Entity[] {
           name: 'AverageCheckAmount365',
           description: 'Average check amount per customer in last 365 days',
           saved: false,
-          preview: {},
-          editUrl: '/features/AverageCheckAmount365/edit'
+          preview: {}
         }];
         this.summary.unshift({
           id: 'sum-' + sa.id, label: 'Feature generated: AverageCheckAmount365', kind: 'feature',
@@ -510,8 +542,7 @@ allEntities(): Entity[] {
           name: 'RTP Outgoing: High Amount & Frequency (10d)',
           description: 'Trigger when 10d sum >= 5000 AND frequency >= 5',
           saved: false,
-          preview: {},
-          editUrl: '/rules/rtp_outgoing_amount_freq_10d/edit'
+          preview: {}
         }];
         this.summary.unshift({
           id: 'sum-' + sa.id, label: 'Rule drafted: RTP Outgoing Amount & Frequency (10d)', kind: 'rule',
@@ -540,6 +571,17 @@ allEntities(): Entity[] {
     this.summary = this.summary.filter(s => s.createdEntityId !== e.id);
   }
   removeEntityEverywhere(e: Entity) { this.revertEntity(e); }
+
+  /* end-of-chat table helper */
+  allEntities(): Entity[] {
+    const out: Entity[] = [];
+    this.runs.forEach(run =>
+      run.subAgents.forEach(sa =>
+        (sa.generatedEntities || []).forEach(e => out.push(e))
+      )
+    );
+    return out;
+  }
 
   /* helpers */
   private findEntityById(id: string): Entity | undefined {
