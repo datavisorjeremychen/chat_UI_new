@@ -12,30 +12,37 @@ interface ChatSummaryItem {
   kind: Kind;
   anchorId: string;
   createdEntityId?: string;
-  status?: EntityStatus; // Pending | Accepted | Expired
+  status?: EntityStatus;
   time?: Date;
 }
+
 interface Entity {
   id: string;
   type: 'feature' | 'rule';
   name: string;
   description?: string;
-  saved: boolean;          // true => Accepted
-  expired?: boolean;       // true => Expired
+  saved: boolean;       // true => Accepted
+  expired?: boolean;    // true => Expired
   preview?: any;
-  platformUrl?: string;    // “View in Platform”
+  platformUrl?: string; // “View in Platform”
 }
+
 interface SubAgent {
   id: string;
   name: string;
   status: AgentStatus;
   expanded?: boolean;
-  needsApproval?: boolean; // must approve (Approve/Deny) before generating
+  needsApproval?: boolean;
   approvalAsked?: boolean;
   thinking?: string;
   response?: string;
   generatedEntities?: Entity[];
+
+  // Visibility & orchestration
+  revealed?: boolean;         // whether to render it in the UI
+  concurrencyGroup?: string;  // same key => run/display concurrently
 }
+
 interface AgentRun {
   id: string;
   name: string;
@@ -44,12 +51,13 @@ interface AgentRun {
   anchorId: string;
   subAgents: SubAgent[];
 }
+
 interface ChatItem {
   id: string;
   title: string;
   summary: string;
   updatedAt: Date;
-  pendingCount?: number; // for non-active chats; active chat computed live
+  pendingCount?: number;
 }
 
 @Component({
@@ -67,16 +75,16 @@ interface ChatItem {
         </div>
       </div>
       <div class="history-list">
-        <div
-          *ngFor="let c of filteredHistory"
-          class="history-item"
-          [class.active]="c.id===activeChatId"
-          (click)="selectChat(c.id)"
-        >
+        <div *ngFor="let c of filteredHistory"
+             class="history-item"
+             [class.active]="c.id===activeChatId"
+             (click)="selectChat(c.id)">
           <div class="title-row">
             <div class="title" [title]="c.title">
               {{ c.title }}
-              <span *ngIf="getPendingCountForChat(c) > 0" class="pending-badge" [title]="getPendingCountForChat(c) + ' pending'">
+              <span *ngIf="getPendingCountForChat(c) > 0"
+                    class="pending-badge"
+                    [title]="getPendingCountForChat(c) + ' pending'">
                 {{ getPendingCountForChat(c) > 99 ? '99+' : getPendingCountForChat(c) }}
               </span>
             </div>
@@ -140,7 +148,7 @@ interface ChatItem {
         </div>
 
         <div class="preview-actions">
-          <button class="chip chip-primary" *ngIf="!p.saved && !p.expired" (click)="acceptEntity(p)">✔ Accept</button>
+          <button class="chip chip-accept" *ngIf="!p.saved && !p.expired" (click)="acceptEntity(p)">✔ Accept</button>
           <button class="chip chip-danger" *ngIf="!p.saved && !p.expired" (click)="rejectEntity(p)">✖ Reject</button>
           <a class="btn-link" *ngIf="p.saved && p.platformUrl" [href]="p.platformUrl" target="_blank">View in Platform ↗</a>
         </div>
@@ -167,9 +175,9 @@ interface ChatItem {
           </div>
         </div>
 
-        <!-- Subagents -->
+        <!-- Subagents (render only when revealed) -->
         <div class="subagents">
-          <div class="subagent" *ngFor="let sa of run.subAgents">
+          <div class="subagent" *ngFor="let sa of run.subAgents" [class.hidden]="!sa.revealed">
             <div class="subagent-header">
               <button class="expander" (click)="sa.expanded = !sa.expanded">{{ sa.expanded ? '▾' : '▸' }}</button>
               <div class="subagent-title">
@@ -184,7 +192,7 @@ interface ChatItem {
             <div class="approval-row" *ngIf="sa.needsApproval">
               <span>Approval required to generate {{ sa.name.toLowerCase().includes('rule') ? 'Rule' : 'Feature' }}</span>
               <div class="approval-actions">
-                <button class="chip chip-primary" (click)="approveSubAgentToGenerate(sa)">✔ Approve</button>
+                <button class="chip chip-accept" (click)="approveSubAgentToGenerate(run, sa)">✔ Approve</button>
                 <button class="chip" (click)="denySubAgent(sa)">✖ Deny</button>
               </div>
             </div>
@@ -203,7 +211,7 @@ interface ChatItem {
                   <div class="entity-head">
                     <span class="pill">{{ e.type | titlecase }}</span>
                     <span class="entity-name">{{ e.name }}</span>
-                    <!-- Status chip RIGHT NEXT to entity name -->
+                    <!-- Status right next to name -->
                     <span class="status-chip"
                           [class.pending]="!e.saved && !e.expired"
                           [class.expired]="e.expired"
@@ -215,7 +223,7 @@ interface ChatItem {
                     <button class="chip micro" (click)="openPreview(e)">👁 Preview</button>
                   </div>
                   <div class="entity-actions">
-                    <button class="chip chip-primary micro" *ngIf="!e.saved && !e.expired" (click)="acceptEntity(e)">✔ Accept</button>
+                    <button class="chip chip-accept micro" *ngIf="!e.saved && !e.expired" (click)="acceptEntity(e)">✔ Accept</button>
                     <button class="chip chip-danger micro" *ngIf="!e.saved && !e.expired" (click)="rejectEntity(e)">✖ Reject</button>
                     <a class="btn-link small" *ngIf="e.saved && e.platformUrl" [href]="e.platformUrl" target="_blank">View in Platform ↗</a>
                   </div>
@@ -233,7 +241,7 @@ interface ChatItem {
       <!-- Floating Summary -->
       <button class="floating-summary-btn" (click)="toggleSummary()">ⓘ Summary</button>
 
-      <!-- Summary Drawer (scrollable, show up to 10) -->
+      <!-- Summary Drawer (scrollable, up to 10) -->
       <div class="summary-drawer" *ngIf="showSummary">
         <div class="summary-header drawer-head">
           <h3>Action History</h3>
@@ -247,9 +255,7 @@ interface ChatItem {
                 <span class="tl-kind">{{ s.kind | titlecase }}</span>
                 <span class="tl-time">{{ (s.time || now) | date:'MM/dd HH:mm' }}</span>
               </div>
-              <a href="#" class="tl-label" (click)="scrollToAnchor(s.anchorId); $event.preventDefault(); toggleSummary(false)">
-                {{ s.label }}
-              </a>
+              <a href="#" class="tl-label" (click)="scrollToAnchor(s.anchorId); $event.preventDefault(); toggleSummary(false)">{{ s.label }}</a>
               <div class="tl-actions" *ngIf="s.createdEntityId || s.status">
                 <span class="status-chip"
                       [class.pending]="getSummaryStatus(s)==='Pending'"
@@ -266,8 +272,8 @@ interface ChatItem {
         </div>
       </div>
 
-      <!-- End-of-convo entity list -->
-      <section class="entity-summary" *ngIf="allEntities().length">
+      <!-- End-of-convo entity list (ONLY after all agents complete) -->
+      <section class="entity-summary" *ngIf="allComplete() && allEntities().length">
         <div class="summary-header">Entities created in this conversation</div>
         <div class="entity-grid">
           <div class="entity-row" *ngFor="let e of allEntities()">
@@ -288,7 +294,7 @@ interface ChatItem {
             </div>
             <div class="col actions">
               <button class="chip micro" (click)="openPreview(e)">👁 Preview</button>
-              <button class="chip chip-primary micro" *ngIf="!e.saved && !e.expired" (click)="acceptEntity(e)">✔ Accept</button>
+              <button class="chip chip-accept micro" *ngIf="!e.saved && !e.expired" (click)="acceptEntity(e)">✔ Accept</button>
               <button class="chip chip-danger micro" *ngIf="!e.saved && !e.expired" (click)="rejectEntity(e)">✖ Reject</button>
               <a class="btn-link small" *ngIf="e.saved && e.platformUrl" [href]="e.platformUrl" target="_blank">View in Platform ↗</a>
             </div>
@@ -296,7 +302,7 @@ interface ChatItem {
         </div>
       </section>
 
-      <!-- Global Prompt Composer (icon-only actions) -->
+      <!-- Global Prompt Composer -->
       <section class="composer-bottom">
         <textarea [(ngModel)]="prompt" rows="3" placeholder="Ask the AI to create features, draft rules, build datasets, investigate alerts, create dashboards…"></textarea>
         <div class="composer-actions">
@@ -365,6 +371,7 @@ interface ChatItem {
 
     .subagents { display:grid; gap:6px; }
     .subagent { border:1px solid #e5e7eb; border-radius:8px; }
+    .subagent.hidden { display:none; }
     .subagent-header { display:flex; align-items:center; gap:8px; padding:6px 8px; }
     .subagent-title { font-weight:600; font-size:13px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
     .expander { border:none; background:transparent; font-size:16px; cursor:pointer; }
@@ -381,16 +388,18 @@ interface ChatItem {
     .entity-head { display:flex; align-items:center; gap:8px; }
     .pill { background:#e2e8f0; font-size:10px; padding:2px 6px; border-radius:99px; }
     .entity-name { font-weight:700; font-size:13px; }
+
+    /* Status (filled) vs Action (outlined) */
     .status-chip { display:inline-flex; align-items:center; gap:6px; border-radius:999px; padding:2px 10px; font-size:11px; }
     .status-chip.pending { background:#fee4cb; color:#9a3412; }
     .status-chip.accepted { background:#dcfce7; color:#166534; }
     .status-chip.expired { background:#e2e8f0; color:#334155; }
     .status-chip .ico { font-size:12px; }
+
     .entity-actions { display:flex; gap:8px; margin-top:6px; align-items:center; }
-    /* Action chips remain outlined to visually differ from status chips */
     .chip { border:1px solid #e5e7eb; background:#f8fafc; border-radius:999px; padding:4px 10px; font-size:12px; cursor:pointer; }
     .chip.micro { padding:2px 8px; font-size:11px; }
-    .chip-primary { background:#eef2ff; border-color:#c7d2fe; color:#3730a3; }
+    .chip-accept { background:#22c55e; color:#fff; border-color:#16a34a; } /* <-- green Accept */
     .chip-danger { background:#fee2e2; border-color:#fecaca; color:#991b1b; }
 
     .stopped-notice { margin-top:8px; background:#f1f5f9; padding:6px 8px; border-radius:8px; color:#0f172a; font-size:12px; }
@@ -427,14 +436,6 @@ interface ChatItem {
     .icon-btn:hover { filter:brightness(0.98); }
     .icon-btn.danger { background:#fee2e2; border-color:#fecaca; color:#991b1b; }
 
-    /* Buttons & chips */
-    .btn { border:1px solid #e5e7eb; background:#fff; border-radius:8px; padding:6px 10px; cursor:pointer; font-size:12px; }
-    .btn:hover { background:#f8fafc; }
-    .btn.btn-primary { background:#4f46e5; color:#fff; border-color:#4f46e5; }
-    .btn.btn-ghost { background:transparent; border-color:transparent; color:#0f172a; }
-    .btn-link { border:none; background:transparent; color:#4f46e5; cursor:pointer; text-decoration:none; font-size:12px; }
-    .spacer { flex:1; }
-
     @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
   `]
 })
@@ -464,39 +465,49 @@ export class ChatWorkbenchComponent {
     status: 'Running',
     anchorId: 'anchor-r1',
     subAgents: [
+      // Concurrent group A: Feature + Rule visible together
       {
-        id: 'sa1',
-        name: 'Feature Generator',
+        id: 'sa_feature',
+        name: 'Feature Creator',
         status: 'Idle',
-        expanded: false,
+        expanded: true,
         needsApproval: true,
         approvalAsked: true,
-        thinking: 'Plan: compute 365d moving average per customer on check events; set default=0 and hotspot=off.',
-        response: ''
+        thinking: 'Compute 365d moving average per customer on check events; default=0; hotspot=off.',
+        response: '',
+        revealed: true,
+        concurrencyGroup: 'A'
       },
       {
-        id: 'sa2',
-        name: 'Rule Drafting',
+        id: 'sa_rule',
+        name: 'Rule Creator',
+        status: 'Idle',
+        expanded: true,
+        needsApproval: true,
+        approvalAsked: true,
+        thinking: 'Draft RTP rule: 10d amount sum >= 5000 AND frequency >= 5.',
+        response: '',
+        revealed: true,
+        concurrencyGroup: 'A'
+      },
+      // Sequential: reveal after Rule Creator completes
+      {
+        id: 'sa_rule_test',
+        name: 'Rule Test',
         status: 'Idle',
         expanded: false,
         needsApproval: true,
         approvalAsked: true,
-        thinking: 'Hypothesis: flag RTP when 10d amount sum >= 5000 AND frequency >= 5.',
-        response: ''
+        thinking: 'Run backtests over last 30 days; compute precision/recall and lift vs. baseline.',
+        response: '',
+        revealed: false, // initially hidden
       }
     ]
   }];
 
-  // Seed summary with a very old Expired item to illustrate auto-removal (>7 days)
+  // Include a very old Expired example (> 7 days)
   summary: ChatSummaryItem[] = [
-    {
-      id: 's_old',
-      label: 'Old rule draft (auto-expire example)',
-      kind: 'rule',
-      anchorId: 'anchor-r1',
-      status: 'Expired',
-      time: new Date(Date.now() - 9 * 86400000) // 9 days ago
-    },
+    { id: 's_old', label: 'Old rule draft (auto-expire example)', kind: 'rule', anchorId: 'anchor-r1', status: 'Expired', time: new Date(Date.now() - 9*86400000) },
     { id: 's1', label: 'Started: Fraud Pattern Analysis', kind: 'analysis', anchorId: 'anchor-r1', time: new Date() }
   ];
 
@@ -517,7 +528,6 @@ export class ChatWorkbenchComponent {
   }
   getPendingCountForChat(chat: ChatItem): number {
     if (chat.id !== this.activeChatId) return chat.pendingCount || 0;
-    // Active chat: compute live pending count
     return this.allEntities().filter(e => !e.saved && !e.expired).length;
   }
 
@@ -533,8 +543,9 @@ export class ChatWorkbenchComponent {
       status: 'Running',
       anchorId,
       subAgents: [
-        { id: runId + '-a', name: 'Feature Generator', status: 'Idle', expanded: false, needsApproval: true, approvalAsked: true, thinking: 'Compute aggregate/velocity feature per user across 24h/365d windows.', response: '' },
-        { id: runId + '-b', name: 'Rule Drafting',   status: 'Idle', expanded: false, needsApproval: true, approvalAsked: true, thinking: 'Combine sum & frequency conditions with AND; start conservative thresholds.', response: '' }
+        { id: runId + '-feat', name: 'Feature Creator', status: 'Idle', expanded: true, needsApproval: true, approvalAsked: true, thinking: 'Aggregate & velocity features.', revealed: true, concurrencyGroup: 'A' },
+        { id: runId + '-rule', name: 'Rule Creator', status: 'Idle', expanded: true, needsApproval: true, approvalAsked: true, thinking: 'Draft rule with dual thresholds.', revealed: true, concurrencyGroup: 'A' },
+        { id: runId + '-test', name: 'Rule Test', status: 'Idle', expanded: false, needsApproval: true, approvalAsked: true, thinking: 'Backtest & metrics.', revealed: false }
       ]
     };
     this.runs.unshift(newRun);
@@ -567,10 +578,12 @@ export class ChatWorkbenchComponent {
   }
   stopSubAgent(sa: SubAgent) { if (sa.status === 'Running') sa.status = 'Stopped'; }
 
-  /* approval → generate (Approve/Deny) */
-  approveSubAgentToGenerate(sa: SubAgent) {
+  /* approval → generate */
+  approveSubAgentToGenerate(run: AgentRun, sa: SubAgent) {
     sa.needsApproval = false;
     sa.status = 'Running';
+
+    // Simulate generation & completion
     setTimeout(() => {
       if (sa.name.toLowerCase().includes('feature')) {
         sa.response = 'Created feature: AverageCheckAmount365';
@@ -583,9 +596,11 @@ export class ChatWorkbenchComponent {
         }];
         this.summary.unshift({
           id: 'sum-' + sa.id, label: 'Feature generated: AverageCheckAmount365', kind: 'feature',
-          anchorId: this.runs[0].anchorId, createdEntityId: sa.generatedEntities[0].id, status: 'Pending', time: new Date()
+          anchorId: run.anchorId, createdEntityId: sa.generatedEntities[0].id, status: 'Pending', time: new Date()
         });
-      } else {
+        // Feature completes slightly later than Rule to illustrate concurrency difference
+        setTimeout(() => { sa.status = 'Completed'; this.maybeRevealNext(run, sa); this.updatePendingBadge(); }, 400);
+      } else if (sa.name.toLowerCase().includes('rule creator')) {
         sa.response = 'Drafted rule: RTP Outgoing Amount & Frequency (10d)';
         sa.generatedEntities = [{
           id: 'rule-' + Date.now(),
@@ -596,19 +611,43 @@ export class ChatWorkbenchComponent {
         }];
         this.summary.unshift({
           id: 'sum-' + sa.id, label: 'Rule drafted: RTP Outgoing Amount & Frequency (10d)', kind: 'rule',
-          anchorId: this.runs[0].anchorId, createdEntityId: sa.generatedEntities[0].id, status: 'Pending', time: new Date()
+          anchorId: run.anchorId, createdEntityId: sa.generatedEntities[0].id, status: 'Pending', time: new Date()
         });
+        // Rule completes first → reveal Rule Test
+        sa.status = 'Completed';
+        this.maybeRevealNext(run, sa);
+        this.updatePendingBadge();
+      } else if (sa.name.toLowerCase().includes('rule test')) {
+        sa.response = 'Backtest complete: precision=0.42, recall=0.68, lift=1.9x vs. baseline.';
+        sa.generatedEntities = []; // test step may not create entities
+        sa.status = 'Completed';
+        this.updatePendingBadge();
       }
-      sa.status = 'Completed';
-      // update active chat badge
-      const active = this.history.find(h => h.id === this.activeChatId);
-      if (active) active.pendingCount = this.allEntities().filter(e => !e.saved && !e.expired).length;
     }, 500);
   }
+
   denySubAgent(sa: SubAgent) {
     sa.needsApproval = false;
     sa.response = 'User denied this step.';
     sa.status = 'Completed';
+  }
+
+  /* Sequential reveal logic:
+     - If a subagent named "Rule Creator" completes, reveal "Rule Test" */
+  private maybeRevealNext(run: AgentRun, completed: SubAgent) {
+    if (completed.name.toLowerCase().includes('rule creator')) {
+      const next = run.subAgents.find(x => x.name.toLowerCase().includes('rule test'));
+      if (next && !next.revealed) {
+        next.revealed = true;
+        next.expanded = true;
+      }
+    }
+    // Mark run Completed if all visible subagents have finished and no hidden ones remain unrevealed
+    if (run.subAgents.every(sa => sa.revealed ? (sa.status === 'Completed' || sa.status === 'Stopped') : true)) {
+      // If there are hidden steps, keep run Running; else complete.
+      const anyHidden = run.subAgents.some(sa => !sa.revealed);
+      if (!anyHidden) run.status = 'Completed';
+    }
   }
 
   /* entity Accept / Reject */
@@ -619,17 +658,26 @@ export class ChatWorkbenchComponent {
       : 'https://app.datavisor.com/rules/' + encodeURIComponent(e.name);
     const s = this.summary.find(x => x.createdEntityId === e.id);
     if (s) s.status = 'Accepted';
-    const active = this.history.find(h => h.id === this.activeChatId);
-    if (active) active.pendingCount = this.allEntities().filter(x => !x.saved && !x.expired).length;
+    this.updatePendingBadge();
   }
   rejectEntity(e: Entity) {
-    // Mark as expired (kept in the list for traceability)
     e.saved = false; e.expired = true;
     const s = this.summary.find(x => x.createdEntityId === e.id);
     if (s) s.status = 'Expired';
     if (this.previewEntity?.id === e.id) this.closePreview();
-    const active = this.history.find(h => h.id === this.activeChatId);
-    if (active) active.pendingCount = this.allEntities().filter(x => !x.saved && !x.expired).length;
+    this.updatePendingBadge();
+  }
+
+  /* entity table visibility */
+  allComplete(): boolean {
+    // All runs done AND all revealed sub-agents done AND no approvals pending
+    const runsDone = this.runs.every(r => r.status !== 'Running');
+    const subsDone = this.runs.every(r =>
+      r.subAgents
+        .filter(sa => sa.revealed)
+        .every(sa => (sa.status === 'Completed' || sa.status === 'Stopped') && !sa.needsApproval)
+    );
+    return runsDone && subsDone;
   }
 
   /* end-of-chat table helper */
@@ -644,6 +692,10 @@ export class ChatWorkbenchComponent {
   }
 
   /* helpers */
+  private updatePendingBadge() {
+    const active = this.history.find(h => h.id === this.activeChatId);
+    if (active) active.pendingCount = this.allEntities().filter(x => !x.saved && !x.expired).length;
+  }
   private findEntityById(id: string): Entity | undefined {
     for (const r of this.runs) for (const sa of r.subAgents) {
       const found = (sa.generatedEntities || []).find(e => e.id === id);
