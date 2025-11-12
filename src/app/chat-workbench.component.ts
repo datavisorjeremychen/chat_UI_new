@@ -328,4 +328,214 @@ interface ChatItem {
     .subagent-header { display:flex; align-items:center; gap:8px; padding:6px 8px; }
     .subagent-title { font-weight:600; font-size:13px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
     .expander { border:none; background:transparent; font-size:16px; cursor:pointer; }
-    .approval-row { display:flex; justify-content:space-between; align-items:center; padding:8px 10px; font-size:12px; backg
+    .approval-row { display:flex; justify-content:space-between; align-items:center; padding:8px 10px; font-size:12px; background:#fffbeb; border-top:1px dashed #f59e0b; border-bottom:1px dashed #f59e0b; }
+    .approval-actions { display:flex; gap:6px; }
+    .subagent-body { border-top:1px dashed #e5e7eb; padding:8px 10px; display:grid; gap:8px; }
+    .thinking { white-space:pre-wrap; color:#0f172a; font-size:12px; }
+
+    .entities { display:grid; gap:8px; }
+    .entity-card { border:1px solid #e5e7eb; border-radius:8px; padding:8px; }
+    .entity-head { display:flex; align-items:center; gap:8px; }
+    .pill { background:#e2e8f0; font-size:10px; padding:2px 6px; border-radius:99px; }
+    .entity-name { font-weight:700; font-size:13px; }
+    .entity-actions { display:flex; gap:8px; margin-top:6px; align-items:center; }
+
+    .stopped-notice { margin-top:8px; background:#f1f5f9; padding:6px 8px; border-radius:8px; color:#0f172a; font-size:12px; }
+
+    /* Summary */
+    .floating-summary-btn { position:fixed; right:24px; bottom:92px; border-radius:999px; background:#4f46e5; color:#fff; padding:8px 14px; font-weight:600; box-shadow:0 2px 8px rgba(0,0,0,0.15); z-index:5; font-size:12px;}
+    .summary-drawer { position:fixed; right:0; top:0; width:340px; height:100%; background:#f9fafb; border-left:1px solid #e5e7eb; box-shadow:-4px 0 12px rgba(0,0,0,0.08); animation:slideIn .25s ease; z-index:6; display:flex; flex-direction:column; }
+    .drawer-head { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid #e5e7eb; }
+    .timeline { padding:10px 12px; overflow:auto; }
+    .tl-row { position:relative; display:flex; gap:10px; margin-bottom:12px; }
+    .tl-row::before { content:''; position:absolute; left:6px; top:14px; bottom:-6px; width:2px; background:#e2e8f0; }
+    .tl-dot { width:12px; height:12px; border-radius:50%; margin-top:4px; background:#cbd5e1; flex:0 0 auto; }
+    .tl-dot.feature { background:#0ea5e9; }
+    .tl-dot.rule { background:#f59e0b; }
+    .tl-dot.analysis, .tl-dot.workflow, .tl-dot.other { background:#a78bfa; }
+    .tl-card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:8px 10px; flex:1; }
+    .tl-top { display:flex; align-items:center; gap:8px; font-size:11px; color:#64748b; }
+    .tl-kind { font-weight:600; }
+    .tl-time { margin-left:auto; }
+    .tl-label { display:block; margin-top:4px; font-weight:600; text-decoration:none; color:#111827; }
+    .tl-actions { display:flex; gap:8px; margin-top:6px; align-items:center; }
+    .tag { font-size:11px; background:#e2e8f0; padding:2px 8px; border-radius:99px; }
+    .tag.unaccepted { background:#fee2e2; color:#991b1b; }
+
+    /* Composer with icon buttons */
+    .composer-bottom { position:fixed; left:260px; right:0; bottom:0; background:#fff; border-top:1px solid #e5e7eb; padding:10px 16px; display:flex; gap:10px; align-items:flex-end; z-index:4; }
+    .composer-bottom textarea { flex:1; resize:vertical; min-height:56px; padding:8px; border:1px solid #e5e7eb; border-radius:8px; font-size:13px; }
+    .composer-actions { display:flex; gap:6px; }
+    .icon-btn { width:32px; height:32px; display:inline-flex; align-items:center; justify-content:center; border:1px solid #e5e7eb; background:#f8fafc; border-radius:8px; font-size:14px; cursor:pointer; }
+    .icon-btn:hover { filter:brightness(0.98); }
+    .icon-btn.danger { background:#fee2e2; border-color:#fecaca; color:#991b1b; }
+
+    /* Buttons */
+    .btn { border:1px solid #e5e7eb; background:#fff; border-radius:8px; padding:6px 10px; cursor:pointer; font-size:12px; }
+    .btn:hover { background:#f8fafc; }
+    .btn.btn-primary { background:#4f46e5; color:#fff; border-color:#4f46e5; }
+    .btn.btn-ghost { background:transparent; border-color:transparent; color:#0f172a; }
+    .btn-link { border:none; background:transparent; color:#4f46e5; cursor:pointer; text-decoration:none; font-size:12px; }
+    .chip { border:1px solid #e5e7eb; background:#f8fafc; border-radius:999px; padding:4px 10px; font-size:12px; cursor:pointer; }
+    .chip.micro { padding:2px 8px; font-size:11px; }
+    .chip:hover { filter:brightness(0.98); }
+    .chip-primary { background:#eef2ff; border-color:#c7d2fe; color:#3730a3; }
+    .chip-danger { background:#fee2e2; border-color:#fecaca; color:#991b1b; }
+    .spacer { flex:1; }
+
+    @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+  `]
+})
+export class ChatWorkbenchComponent {
+  historySearch = '';
+  history: ChatItem[] = [
+    { id: 'c1', title: '24h total amount feature', summary: 'Created agg feature & drafted velocity rule', updatedAt: new Date() },
+    { id: 'c2', title: 'High-velocity ACH rule tuning', summary: 'Adjusted thresholds, added watchlist action', updatedAt: new Date(Date.now() - 86400000) },
+    { id: 'c3', title: 'Profile transformer ideas', summary: 'Outlined embeddings and clustering approach', updatedAt: new Date(Date.now() - 3*86400000) },
+  ];
+  filteredHistory: ChatItem[] = [...this.history];
+  activeChatId = 'c1';
+  get activeChat(): ChatItem | undefined { return this.history.find(h => h.id === this.activeChatId); }
+
+  prompt = '';
+  previewOpen = false;
+  previewEntity?: Entity;
+  showSummary = false;
+  now = new Date();
+
+  runs: AgentRun[] = [{
+    id: 'r1',
+    name: 'Fraud Pattern Analysis',
+    startedAt: new Date(),
+    status: 'Running',
+    anchorId: 'anchor-r1',
+    subAgents: [
+      { id: 'sa1', name: 'Feature Generator', status: 'Idle', expanded: false, needsApproval: true, approvalAsked: true, response: '' },
+      { id: 'sa2', name: 'Rule Drafting',   status: 'Idle', expanded: false, needsApproval: true, approvalAsked: true, response: '' }
+    ]
+  }];
+
+  summary: ChatSummaryItem[] = [
+    { id: 's1', label: 'Started: Fraud Pattern Analysis', kind: 'analysis', anchorId: 'anchor-r1', time: new Date() }
+  ];
+
+  /* history */
+  filterHistory() {
+    const q = this.historySearch.toLowerCase();
+    this.filteredHistory = this.history.filter(h => (h.title + ' ' + h.summary).toLowerCase().includes(q));
+  }
+  selectChat(id: string) { this.activeChatId = id; }
+  newChat() {
+    const id = 'c' + (this.history.length + 1);
+    const item: ChatItem = { id, title: 'New Chat', summary: 'Empty', updatedAt: new Date() };
+    this.history.unshift(item); this.filteredHistory = [...this.history]; this.activeChatId = id;
+  }
+
+  /* prompt */
+  sendPrompt() {
+    if (!this.prompt.trim()) return;
+    const runId = 'r' + (this.runs.length + 1);
+    const anchorId = 'anchor-' + runId;
+    const newRun: AgentRun = {
+      id: runId,
+      name: 'Agent Orchestration for: ' + (this.prompt.length > 60 ? this.prompt.slice(0,60) + '…' : this.prompt),
+      startedAt: new Date(),
+      status: 'Running',
+      anchorId,
+      subAgents: [
+        { id: runId + '-a', name: 'Feature Generator', status: 'Idle', expanded: false, needsApproval: true, approvalAsked: true, response: '' },
+        { id: runId + '-b', name: 'Rule Drafting',   status: 'Idle', expanded: false, needsApproval: true, approvalAsked: true, response: '' }
+      ]
+    };
+    this.runs.unshift(newRun);
+    this.summary.unshift({ id: 's-' + runId, label: 'Started: ' + newRun.name, kind: 'analysis', anchorId, time: new Date() });
+    this.prompt = '';
+  }
+  copyPrompt() { const text = this.prompt || ''; navigator.clipboard?.writeText(text).catch(() => {}); }
+
+  /* preview */
+  openPreview(e: Entity) { this.previewEntity = e; this.previewOpen = true; }
+  closePreview() { this.previewOpen = false; this.previewEntity = undefined; }
+
+  /* summary */
+  toggleSummary(next?: boolean) { this.showSummary = typeof next === 'boolean' ? next : !this.showSummary; }
+  scrollToAnchor(anchorId: string) { const el = document.getElementById(anchorId); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  revertActivity(s: ChatSummaryItem) { if (!s.createdEntityId) return; const e = this.findEntityById(s.createdEntityId); if (e && !e.saved) this.revertEntity(e); }
+
+  /* stop controls */
+  anyRunRunning(): boolean { return this.runs.some(r => r.status === 'Running'); }
+  stopMain() { this.runs.forEach(r => this.stopRun(r)); }
+  stopRun(run: AgentRun) {
+    run.status = 'Stopped';
+    run.subAgents.forEach(sa => { if (sa.status === 'Running' || sa.status === 'Idle') sa.status = 'Stopped'; });
+  }
+  stopSubAgent(sa: SubAgent) { if (sa.status === 'Running') sa.status = 'Stopped'; }
+
+  /* approval → generate */
+  approveSubAgentToGenerate(sa: SubAgent) {
+    sa.needsApproval = false;
+    sa.status = 'Running';
+    setTimeout(() => {
+      if (sa.name.toLowerCase().includes('feature')) {
+        sa.response = 'Created feature: AverageCheckAmount365';
+        sa.generatedEntities = [{
+          id: 'feat-' + Date.now(),
+          type: 'feature',
+          name: 'AverageCheckAmount365',
+          description: 'Average check amount per customer in last 365 days',
+          saved: false,
+          preview: {},
+          editUrl: '/features/AverageCheckAmount365/edit'
+        }];
+        this.summary.unshift({
+          id: 'sum-' + sa.id, label: 'Feature generated: AverageCheckAmount365', kind: 'feature',
+          anchorId: this.runs[0].anchorId, createdEntityId: sa.generatedEntities[0].id, isSaved: false, time: new Date()
+        });
+      } else {
+        sa.response = 'Drafted rule: RTP Outgoing Amount & Frequency (10d)';
+        sa.generatedEntities = [{
+          id: 'rule-' + Date.now(),
+          type: 'rule',
+          name: 'RTP Outgoing: High Amount & Frequency (10d)',
+          description: 'Trigger when 10d sum >= 5000 AND frequency >= 5',
+          saved: false,
+          preview: {},
+          editUrl: '/rules/rtp_outgoing_amount_freq_10d/edit'
+        }];
+        this.summary.unshift({
+          id: 'sum-' + sa.id, label: 'Rule drafted: RTP Outgoing Amount & Frequency (10d)', kind: 'rule',
+          anchorId: this.runs[0].anchorId, createdEntityId: sa.generatedEntities[0].id, isSaved: false, time: new Date()
+        });
+      }
+      sa.status = 'Completed';
+    }, 500);
+  }
+  rejectSubAgent(sa: SubAgent) { sa.needsApproval = false; sa.response = 'User rejected this step.'; sa.status = 'Completed'; }
+
+  /* accept / revert */
+  acceptEntity(e: Entity) {
+    e.saved = true;
+    e.platformUrl = e.type === 'feature'
+      ? 'https://app.datavisor.com/features/' + encodeURIComponent(e.name)
+      : 'https://app.datavisor.com/rules/' + encodeURIComponent(e.name);
+    const s = this.summary.find(x => x.createdEntityId === e.id);
+    if (s) s.isSaved = true;
+  }
+  revertEntity(e: Entity) {
+    this.runs.forEach(r => r.subAgents.forEach(sa => {
+      sa.generatedEntities = (sa.generatedEntities || []).filter(x => x.id !== e.id);
+    }));
+    if (this.previewEntity?.id === e.id) this.closePreview();
+    this.summary = this.summary.filter(s => s.createdEntityId !== e.id);
+  }
+  removeEntityEverywhere(e: Entity) { this.revertEntity(e); }
+
+  /* helpers */
+  private findEntityById(id: string): Entity | undefined {
+    for (const r of this.runs) for (const sa of r.subAgents) {
+      const found = (sa.generatedEntities || []).find(e => e.id === id);
+      if (found) return found;
+    }
+    return undefined;
+  }
+}
