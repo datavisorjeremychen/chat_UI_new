@@ -38,9 +38,13 @@ interface SubAgent {
   response?: string;
   generatedEntities?: Entity[];
 
-  // Visibility & orchestration
-  revealed?: boolean;         // whether to render it in the UI
-  concurrencyGroup?: string;  // same key => run/display concurrently
+  // Orchestration & display
+  revealed?: boolean;         // render in UI?
+  concurrencyGroup?: string;  // same key => concurrent
+
+  // Follow-up
+  denied?: boolean;           // last request was denied
+  userPrompt?: string;        // local input buffer for follow-up
 }
 
 interface AgentRun {
@@ -211,7 +215,7 @@ interface ChatItem {
                   <div class="entity-head">
                     <span class="pill">{{ e.type | titlecase }}</span>
                     <span class="entity-name">{{ e.name }}</span>
-                    <!-- Status right next to name -->
+                    <!-- Status next to name -->
                     <span class="status-chip"
                           [class.pending]="!e.saved && !e.expired"
                           [class.expired]="e.expired"
@@ -228,6 +232,20 @@ interface ChatItem {
                     <a class="btn-link small" *ngIf="e.saved && e.platformUrl" [href]="e.platformUrl" target="_blank">View in Platform ↗</a>
                   </div>
                 </div>
+              </div>
+
+              <!-- FOLLOW-UP COMPOSER (new):
+                   If user stopped this sub-agent OR denied its last request,
+                   allow more prompt to refine and retry this sub-agent only. -->
+              <div class="followup-wrap" *ngIf="canFollowUp(sa)">
+                <textarea [(ngModel)]="sa.userPrompt"
+                          rows="2"
+                          placeholder="Add more instructions for {{sa.name}} (e.g., tighten thresholds, change window, different entity keys)…"></textarea>
+                <div class="followup-actions">
+                  <button class="chip chip-accept" (click)="sendSubAgentPrompt(run, sa)">➤ Send to {{sa.name}}</button>
+                  <button class="chip" (click)="sa.userPrompt = ''">⟲ Clear</button>
+                </div>
+                <div class="followup-note">Your follow-up re-queues this step and may require approval again.</div>
               </div>
             </div>
           </div>
@@ -272,11 +290,11 @@ interface ChatItem {
         </div>
       </div>
 
-      <!-- End-of-convo entity list (ONLY after all agents complete) -->
-      <section class="entity-summary" *ngIf="allComplete() && allEntities().length">
-        <div class="summary-header">Entities created in this conversation</div>
+      <!-- End-of-convo Accepted list (ONLY after all complete) -->
+      <section class="entity-summary" *ngIf="allComplete() && acceptedEntities().length">
+        <div class="summary-header">Accepted items in this conversation</div>
         <div class="entity-grid">
-          <div class="entity-row" *ngFor="let e of allEntities()">
+          <div class="entity-row" *ngFor="let e of acceptedEntities()">
             <div class="col type">
               <span class="pill">{{ e.type | titlecase }}</span>
             </div>
@@ -284,19 +302,13 @@ interface ChatItem {
               <span class="entity-name">{{ e.name }}</span>
             </div>
             <div class="col status">
-              <span class="status-chip"
-                    [class.pending]="!e.saved && !e.expired"
-                    [class.expired]="e.expired"
-                    [class.accepted]="e.saved">
-                <span class="ico">{{ e.expired ? '⌛' : (e.saved ? '✅' : '⏳') }}</span>
-                {{ e.expired ? 'Expired' : (e.saved ? 'Accepted' : 'Pending') }}
+              <span class="status-chip accepted">
+                <span class="ico">✅</span> Accepted
               </span>
             </div>
             <div class="col actions">
               <button class="chip micro" (click)="openPreview(e)">👁 Preview</button>
-              <button class="chip chip-accept micro" *ngIf="!e.saved && !e.expired" (click)="acceptEntity(e)">✔ Accept</button>
-              <button class="chip chip-danger micro" *ngIf="!e.saved && !e.expired" (click)="rejectEntity(e)">✖ Reject</button>
-              <a class="btn-link small" *ngIf="e.saved && e.platformUrl" [href]="e.platformUrl" target="_blank">View in Platform ↗</a>
+              <a class="btn-link small" *ngIf="e.platformUrl" [href]="e.platformUrl" target="_blank">View in Platform ↗</a>
             </div>
           </div>
         </div>
@@ -378,6 +390,7 @@ interface ChatItem {
 
     .approval-row { display:flex; justify-content:space-between; align-items:center; padding:8px 10px; font-size:12px; background:#fffbeb; border-top:1px dashed #f59e0b; border-bottom:1px dashed #f59e0b; }
     .approval-actions { display:flex; gap:6px; }
+
     .subagent-body { border-top:1px dashed #e5e7eb; padding:8px 10px; display:grid; gap:8px; }
     .thinking-line { display:flex; gap:6px; align-items:flex-start; font-size:12px; color:#334155; background:#f8fafc; border:1px solid #e5e7eb; padding:6px 8px; border-radius:8px; }
     .thinking-line .bulb { opacity:.8; }
@@ -399,8 +412,14 @@ interface ChatItem {
     .entity-actions { display:flex; gap:8px; margin-top:6px; align-items:center; }
     .chip { border:1px solid #e5e7eb; background:#f8fafc; border-radius:999px; padding:4px 10px; font-size:12px; cursor:pointer; }
     .chip.micro { padding:2px 8px; font-size:11px; }
-    .chip-accept { background:#22c55e; color:#fff; border-color:#16a34a; } /* <-- green Accept */
+    .chip-accept { background:#22c55e; color:#fff; border-color:#16a34a; } /* green Accept */
     .chip-danger { background:#fee2e2; border-color:#fecaca; color:#991b1b; }
+
+    /* Follow-up composer */
+    .followup-wrap { border:1px dashed #cbd5e1; background:#f8fafc; border-radius:10px; padding:8px; display:grid; gap:8px; }
+    .followup-wrap textarea { width:100%; border:1px solid #e5e7eb; border-radius:8px; padding:6px 8px; font-size:12px; }
+    .followup-actions { display:flex; gap:8px; align-items:center; }
+    .followup-note { font-size:11px; color:#64748b; }
 
     .stopped-notice { margin-top:8px; background:#f1f5f9; padding:6px 8px; border-radius:8px; color:#0f172a; font-size:12px; }
 
@@ -422,7 +441,7 @@ interface ChatItem {
     .tl-label { display:block; margin-top:4px; font-weight:600; text-decoration:none; color:#111827; }
     .tl-actions { display:flex; gap:8px; margin-top:6px; align-items:center; }
 
-    /* End-of-chat entity list */
+    /* End-of-chat accepted list */
     .entity-summary { margin-top:12px; border:1px solid #e5e7eb; border-radius:12px; padding:12px; }
     .entity-grid { display:grid; gap:10px; }
     .entity-row { display:grid; grid-template-columns: 120px 1fr 160px 1fr; gap:12px; align-items:center; padding:8px 10px; border:1px solid #e5e7eb; border-radius:10px; background:#fff; }
@@ -465,7 +484,7 @@ export class ChatWorkbenchComponent {
     status: 'Running',
     anchorId: 'anchor-r1',
     subAgents: [
-      // Concurrent group A: Feature + Rule visible together
+      // Concurrent A: Feature + Rule visible together
       {
         id: 'sa_feature',
         name: 'Feature Creator',
@@ -500,7 +519,7 @@ export class ChatWorkbenchComponent {
         approvalAsked: true,
         thinking: 'Run backtests over last 30 days; compute precision/recall and lift vs. baseline.',
         response: '',
-        revealed: false, // initially hidden
+        revealed: false,
       }
     ]
   }];
@@ -581,6 +600,7 @@ export class ChatWorkbenchComponent {
   /* approval → generate */
   approveSubAgentToGenerate(run: AgentRun, sa: SubAgent) {
     sa.needsApproval = false;
+    sa.denied = false;
     sa.status = 'Running';
 
     // Simulate generation & completion
@@ -598,7 +618,6 @@ export class ChatWorkbenchComponent {
           id: 'sum-' + sa.id, label: 'Feature generated: AverageCheckAmount365', kind: 'feature',
           anchorId: run.anchorId, createdEntityId: sa.generatedEntities[0].id, status: 'Pending', time: new Date()
         });
-        // Feature completes slightly later than Rule to illustrate concurrency difference
         setTimeout(() => { sa.status = 'Completed'; this.maybeRevealNext(run, sa); this.updatePendingBadge(); }, 400);
       } else if (sa.name.toLowerCase().includes('rule creator')) {
         sa.response = 'Drafted rule: RTP Outgoing Amount & Frequency (10d)';
@@ -613,13 +632,12 @@ export class ChatWorkbenchComponent {
           id: 'sum-' + sa.id, label: 'Rule drafted: RTP Outgoing Amount & Frequency (10d)', kind: 'rule',
           anchorId: run.anchorId, createdEntityId: sa.generatedEntities[0].id, status: 'Pending', time: new Date()
         });
-        // Rule completes first → reveal Rule Test
         sa.status = 'Completed';
         this.maybeRevealNext(run, sa);
         this.updatePendingBadge();
       } else if (sa.name.toLowerCase().includes('rule test')) {
         sa.response = 'Backtest complete: precision=0.42, recall=0.68, lift=1.9x vs. baseline.';
-        sa.generatedEntities = []; // test step may not create entities
+        sa.generatedEntities = [];
         sa.status = 'Completed';
         this.updatePendingBadge();
       }
@@ -628,12 +646,44 @@ export class ChatWorkbenchComponent {
 
   denySubAgent(sa: SubAgent) {
     sa.needsApproval = false;
+    sa.denied = true;              // mark denied so follow-up composer appears
     sa.response = 'User denied this step.';
     sa.status = 'Completed';
   }
 
-  /* Sequential reveal logic:
-     - If a subagent named "Rule Creator" completes, reveal "Rule Test" */
+  /* Follow-up composer logic */
+  canFollowUp(sa: SubAgent): boolean {
+    return sa.status === 'Stopped' || !!sa.denied;
+  }
+
+  sendSubAgentPrompt(run: AgentRun, sa: SubAgent) {
+    const text = (sa.userPrompt || '').trim();
+    if (!text) return;
+
+    // Reset the sub-agent for a new attempt with user constraints
+    sa.thinking = `Follow-up: ${text}`;
+    sa.response = '';
+    sa.generatedEntities = [];
+    sa.denied = false;
+    sa.userPrompt = '';
+    sa.needsApproval = true;   // ask approval again for new plan
+    sa.approvalAsked = true;
+    sa.status = 'Idle';
+    sa.expanded = true;
+    sa.revealed = true;
+
+    // Log in summary
+    this.summary.unshift({
+      id: 'fu-' + sa.id + '-' + Date.now(),
+      label: `User follow-up to ${sa.name}`,
+      kind: 'other',
+      anchorId: run.anchorId,
+      time: new Date()
+    });
+  }
+
+  /* Sequential reveal:
+     - After "Rule Creator" completes, reveal "Rule Test" */
   private maybeRevealNext(run: AgentRun, completed: SubAgent) {
     if (completed.name.toLowerCase().includes('rule creator')) {
       const next = run.subAgents.find(x => x.name.toLowerCase().includes('rule test'));
@@ -642,9 +692,7 @@ export class ChatWorkbenchComponent {
         next.expanded = true;
       }
     }
-    // Mark run Completed if all visible subagents have finished and no hidden ones remain unrevealed
     if (run.subAgents.every(sa => sa.revealed ? (sa.status === 'Completed' || sa.status === 'Stopped') : true)) {
-      // If there are hidden steps, keep run Running; else complete.
       const anyHidden = run.subAgents.some(sa => !sa.revealed);
       if (!anyHidden) run.status = 'Completed';
     }
@@ -668,9 +716,8 @@ export class ChatWorkbenchComponent {
     this.updatePendingBadge();
   }
 
-  /* entity table visibility */
+  /* completion & entity helpers */
   allComplete(): boolean {
-    // All runs done AND all revealed sub-agents done AND no approvals pending
     const runsDone = this.runs.every(r => r.status !== 'Running');
     const subsDone = this.runs.every(r =>
       r.subAgents
@@ -680,7 +727,6 @@ export class ChatWorkbenchComponent {
     return runsDone && subsDone;
   }
 
-  /* end-of-chat table helper */
   allEntities(): Entity[] {
     const out: Entity[] = [];
     this.runs.forEach(run =>
@@ -689,6 +735,9 @@ export class ChatWorkbenchComponent {
       )
     );
     return out;
+  }
+  acceptedEntities(): Entity[] {
+    return this.allEntities().filter(e => e.saved);
   }
 
   /* helpers */
