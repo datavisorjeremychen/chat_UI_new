@@ -506,9 +506,7 @@ export class ChatWorkbenchComponent {
 
   /* chat state */
   prompt = '';
-  previewOpen = false;
-  previewEntity?: Entity;
-  showSummary = false;
+  
   now = new Date();
 
   runs: AgentRun[] = [{
