@@ -402,6 +402,17 @@ export class ChatWorkbenchComponent {
   previewEntity?: Entity;
   showSummary = false;
   now = new Date();
+  /** Collect all generated entities across all sub-agents (for end-of-chat table). */
+allEntities(): Entity[] {
+  const out: Entity[] = [];
+  this.runs.forEach(run =>
+    run.subAgents.forEach(sa =>
+      (sa.generatedEntities || []).forEach(e => out.push(e))
+    )
+  );
+  return out;
+}
+
 
   runs: AgentRun[] = [{
     id: 'r1',
