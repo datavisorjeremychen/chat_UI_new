@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 
 type Kind = 'feature' | 'rule' | 'dataset' | 'analysis' | 'workflow' | 'other';
 type AgentStatus = 'Running' | 'Completed' | 'Stopped' | 'Idle';
+type EntityStatus = 'Accepted' | 'Pending' | 'Expired';
 
 interface ChatSummaryItem {
   id: string;
@@ -11,7 +12,7 @@ interface ChatSummaryItem {
   kind: Kind;
   anchorId: string;
   createdEntityId?: string;
-  isSaved?: boolean;   // true = Accepted
+  status?: EntityStatus; // Pending | Accepted | Expired
   time?: Date;
 }
 interface Entity {
@@ -19,18 +20,19 @@ interface Entity {
   type: 'feature' | 'rule';
   name: string;
   description?: string;
-  saved: boolean;      // true = Accepted
+  saved: boolean;          // true => Accepted
+  expired?: boolean;       // true => Expired
   preview?: any;
-  platformUrl?: string; // external “View in Platform”
+  platformUrl?: string;    // “View in Platform”
 }
 interface SubAgent {
   id: string;
   name: string;
   status: AgentStatus;
   expanded?: boolean;
-  needsApproval?: boolean;
+  needsApproval?: boolean; // must approve (Approve/Deny) before generating
   approvalAsked?: boolean;
-  thinking?: string;         // << added
+  thinking?: string;
   response?: string;
   generatedEntities?: Entity[];
 }
@@ -46,7 +48,9 @@ interface ChatItem {
   id: string;
   title: string;
   summary: string;
+  status: 'Active' | 'Completed' | 'Stopped';
   updatedAt: Date;
+  pending?: boolean; // for non-active chats; active chat is computed live
 }
 
 @Component({
@@ -64,12 +68,23 @@ interface ChatItem {
         </div>
       </div>
       <div class="history-list">
-        <div *ngFor="let c of filteredHistory" class="history-item" [class.active]="c.id===activeChatId" (click)="selectChat(c.id)">
+        <div
+          *ngFor="let c of filteredHistory"
+          class="history-item"
+          [class.active]="c.id===activeChatId"
+          (click)="selectChat(c.id)"
+        >
           <div class="title-row">
-            <div class="title" title="{{ c.title }}">{{ c.title }}</div>
+            <div class="title" [title]="c.title">
+              <span *ngIf="chatHasPending(c)" class="pending-ico" title="Pending items">⏳</span>
+              {{ c.title }}
+            </div>
             <div class="timestamp">{{ c.updatedAt | date:'MM/dd HH:mm' }}</div>
           </div>
-          <div class="summary-line" title="{{ c.summary }}">{{ c.summary }}</div>
+          <div class="meta-row">
+            <span class="chat-status" [class.stopped]="c.status==='Stopped'">{{ c.status }}</span>
+          </div>
+          <div class="summary-line" [title]="c.summary">{{ c.summary }}</div>
         </div>
       </div>
     </aside>
@@ -127,8 +142,8 @@ interface ChatItem {
         </div>
 
         <div class="preview-actions">
-          <button class="chip chip-primary" *ngIf="!p.saved" (click)="acceptEntity(p)">✔ Accept</button>
-          <button class="chip chip-danger" *ngIf="!p.saved" (click)="revertEntity(p)">↶ Revert</button>
+          <button class="chip chip-primary" *ngIf="!p.saved && !p.expired" (click)="acceptEntity(p)">✔ Accept</button>
+          <button class="chip chip-danger" *ngIf="!p.saved && !p.expired" (click)="rejectEntity(p)">✖ Reject</button>
           <a class="btn-link" *ngIf="p.saved && p.platformUrl" [href]="p.platformUrl" target="_blank">View in Platform ↗</a>
         </div>
       </div>
@@ -162,20 +177,17 @@ interface ChatItem {
               <div class="subagent-title">
                 {{ sa.name }}
                 <span class="status micro">{{ sa.status }}</span>
-                <!-- Inline Stop next to name -->
                 <button class="icon-btn danger xs" *ngIf="sa.status==='Running'" (click)="stopSubAgent(sa)" title="Stop this sub-agent">■</button>
-                <!-- If something was generated, surface Preview near title -->
-                <button class="chip micro" *ngIf="sa.generatedEntities?.length" (click)="openPreview(sa.generatedEntities![0])" title="Preview first result">👁 Preview</button>
               </div>
               <div class="spacer"></div>
             </div>
 
-            <!-- Approval first -->
+            <!-- Approval first (Approve/Deny) -->
             <div class="approval-row" *ngIf="sa.needsApproval">
               <span>Approval required to generate {{ sa.name.toLowerCase().includes('rule') ? 'Rule' : 'Feature' }}</span>
               <div class="approval-actions">
                 <button class="chip chip-primary" (click)="approveSubAgentToGenerate(sa)">✔ Approve</button>
-                <button class="chip" (click)="rejectSubAgent(sa)">✖ Reject</button>
+                <button class="chip" (click)="denySubAgent(sa)">✖ Deny</button>
               </div>
             </div>
 
@@ -197,8 +209,14 @@ interface ChatItem {
                     <button class="chip micro" (click)="openPreview(e)">👁 Preview</button>
                   </div>
                   <div class="entity-actions">
-                    <button class="chip chip-primary micro" *ngIf="!e.saved" (click)="acceptEntity(e)">✔ Accept</button>
-                    <button class="chip chip-danger micro" *ngIf="!e.saved" (click)="revertEntity(e)">↶ Revert</button>
+                    <span class="status-chip" [class.pending]="!e.saved && !e.expired" [class.expired]="e.expired" [class.accepted]="e.saved">
+                      <span class="ico">
+                        {{ e.expired ? '⌛' : (e.saved ? '✅' : '⏳') }}
+                      </span>
+                      {{ e.expired ? 'Expired' : (e.saved ? 'Accepted' : 'Pending') }}
+                    </span>
+                    <button class="chip chip-primary micro" *ngIf="!e.saved && !e.expired" (click)="acceptEntity(e)">✔ Accept</button>
+                    <button class="chip chip-danger micro" *ngIf="!e.saved && !e.expired" (click)="rejectEntity(e)">✖ Reject</button>
                     <a class="btn-link small" *ngIf="e.saved && e.platformUrl" [href]="e.platformUrl" target="_blank">View in Platform ↗</a>
                   </div>
                 </div>
@@ -215,27 +233,33 @@ interface ChatItem {
       <!-- Floating Summary -->
       <button class="floating-summary-btn" (click)="toggleSummary()">ⓘ Summary</button>
 
-      <!-- Summary Drawer -->
+      <!-- Summary Drawer (scrollable, show up to 10) -->
       <div class="summary-drawer" *ngIf="showSummary">
         <div class="summary-header drawer-head">
           <h3>Action History</h3>
           <button class="btn btn-ghost" (click)="toggleSummary()">✕</button>
         </div>
-        <div class="timeline">
-          <div *ngFor="let s of summary" class="tl-row">
+        <div class="timeline" style="overflow:auto;">
+          <div *ngFor="let s of summary | slice:0:10" class="tl-row">
             <div class="tl-dot" [ngClass]="s.kind"></div>
             <div class="tl-card">
               <div class="tl-top">
                 <span class="tl-kind">{{ s.kind | titlecase }}</span>
                 <span class="tl-time">{{ (s.time || now) | date:'MM/dd HH:mm' }}</span>
               </div>
-              <a href="#" class="tl-label" (click)="scrollToAnchor(s.anchorId); $event.preventDefault(); toggleSummary(false)">{{ s.label }}</a>
+              <a href="#" class="tl-label" (click)="scrollToAnchor(s.anchorId); $event.preventDefault(); toggleSummary(false)">
+                {{ s.label }}
+              </a>
               <div class="tl-actions" *ngIf="s.createdEntityId">
-                <span class="status-chip" [class.unaccepted]="!s.isSaved">
-                  <span class="ico">{{ s.isSaved ? '✅' : '⏳' }}</span>
-                  {{ s.isSaved ? 'Accepted' : 'Unaccepted' }}
+                <span class="status-chip"
+                      [class.pending]="getSummaryStatus(s)==='Pending'"
+                      [class.accepted]="getSummaryStatus(s)==='Accepted'"
+                      [class.expired]="getSummaryStatus(s)==='Expired'">
+                  <span class="ico">
+                    {{ getSummaryStatus(s)==='Expired' ? '⌛' : (getSummaryStatus(s)==='Accepted' ? '✅' : '⏳') }}
+                  </span>
+                  {{ getSummaryStatus(s) }}
                 </span>
-                <button class="chip chip-danger micro" *ngIf="!s.isSaved" (click)="revertActivity(s)">↶ Revert</button>
               </div>
             </div>
           </div>
@@ -252,15 +276,15 @@ interface ChatItem {
             </div>
             <div class="col name">{{ e.name }}</div>
             <div class="col status">
-              <span class="status-chip" [class.unaccepted]="!e.saved">
-                <span class="ico">{{ e.saved ? '✅' : '⏳' }}</span>
-                {{ e.saved ? 'Accepted' : 'Unaccepted' }}
+              <span class="status-chip" [class.pending]="!e.saved && !e.expired" [class.expired]="e.expired" [class.accepted]="e.saved">
+                <span class="ico">{{ e.expired ? '⌛' : (e.saved ? '✅' : '⏳') }}</span>
+                {{ e.expired ? 'Expired' : (e.saved ? 'Accepted' : 'Pending') }}
               </span>
             </div>
             <div class="col actions">
               <button class="chip micro" (click)="openPreview(e)">👁 Preview</button>
-              <button class="chip chip-primary micro" *ngIf="!e.saved" (click)="acceptEntity(e)">✔ Accept</button>
-              <button class="chip chip-danger micro" *ngIf="!e.saved" (click)="removeEntityEverywhere(e)">↶ Revert</button>
+              <button class="chip chip-primary micro" *ngIf="!e.saved && !e.expired" (click)="acceptEntity(e)">✔ Accept</button>
+              <button class="chip chip-danger micro" *ngIf="!e.saved && !e.expired" (click)="rejectEntity(e)">✖ Reject</button>
               <a class="btn-link small" *ngIf="e.saved && e.platformUrl" [href]="e.platformUrl" target="_blank">View in Platform ↗</a>
             </div>
           </div>
@@ -290,15 +314,19 @@ interface ChatItem {
     .search-wrap { flex:1; }
     .search-wrap input { width:100%; padding:6px 8px; border:1px solid #e5e7eb; border-radius:8px; font-size:12px; }
     .history-list { margin-top:10px; overflow:auto; }
-    .history-item { padding:8px; border-radius:8px; cursor:pointer; border:1px solid transparent; }
+    .history-item { padding:10px; border-radius:8px; cursor:pointer; border:1px solid transparent; }
     .history-item:hover { background:#f8fafc; }
     .history-item.active { background:#eef2ff; border-color:#c7d2fe; }
     .title-row { display:flex; align-items:center; gap:8px; }
-    .title { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .title { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:6px; }
+    .pending-ico { font-size:12px; }
+    .meta-row { margin-top:4px; }
+    .chat-status { font-size:11px; color:#475569; background:#e2e8f0; padding:2px 8px; border-radius:999px; }
+    .chat-status.stopped { background:#fee2e2; color:#991b1b; }
     .timestamp { font-size:11px; color:#64748b; margin-left:auto; }
-    .summary-line { font-size:12px; color:#64748b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .summary-line { margin-top:4px; font-size:12px; color:#475569; line-height:1.25; height:2.5em; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient: vertical; }
 
-    /* Preview DV-like */
+    /* Preview & DV styling */
     .preview-pane { border-right:1px solid #e5e7eb; background:#fafafa; padding:12px; overflow:auto; }
     .preview-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
     .preview-head .title { font-weight:700; font-size:14px; }
@@ -344,7 +372,6 @@ interface ChatItem {
     .subagent-body { border-top:1px dashed #e5e7eb; padding:8px 10px; display:grid; gap:8px; }
     .thinking-line { display:flex; gap:6px; align-items:flex-start; font-size:12px; color:#334155; background:#f8fafc; border:1px solid #e5e7eb; padding:6px 8px; border-radius:8px; }
     .thinking-line .bulb { opacity:.8; }
-
     .thinking { white-space:pre-wrap; color:#0f172a; font-size:12px; }
 
     .entities { display:grid; gap:8px; }
@@ -353,6 +380,11 @@ interface ChatItem {
     .pill { background:#e2e8f0; font-size:10px; padding:2px 6px; border-radius:99px; }
     .entity-name { font-weight:700; font-size:13px; }
     .entity-actions { display:flex; gap:8px; margin-top:6px; align-items:center; }
+    .status-chip { display:inline-flex; align-items:center; gap:6px; background:#e2e8f0; border-radius:999px; padding:2px 10px; font-size:11px; }
+    .status-chip.pending { background:#fee4cb; color:#9a3412; }
+    .status-chip.accepted { background:#dcfce7; color:#166534; }
+    .status-chip.expired { background:#e5e7eb; color:#334155; }
+    .status-chip .ico { font-size:12px; }
 
     .stopped-notice { margin-top:8px; background:#f1f5f9; padding:6px 8px; border-radius:8px; color:#0f172a; font-size:12px; }
 
@@ -360,7 +392,7 @@ interface ChatItem {
     .floating-summary-btn { position:fixed; right:24px; bottom:92px; border-radius:999px; background:#4f46e5; color:#fff; padding:8px 14px; font-weight:600; box-shadow:0 2px 8px rgba(0,0,0,0.15); z-index:5; font-size:12px;}
     .summary-drawer { position:fixed; right:0; top:0; width:340px; height:100%; background:#f9fafb; border-left:1px solid #e5e7eb; box-shadow:-4px 0 12px rgba(0,0,0,0.08); animation:slideIn .25s ease; z-index:6; display:flex; flex-direction:column; }
     .drawer-head { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid #e5e7eb; }
-    .timeline { padding:10px 12px; overflow:auto; }
+    .timeline { padding:10px 12px; height:calc(100% - 44px); overflow:auto; }
     .tl-row { position:relative; display:flex; gap:10px; margin-bottom:12px; }
     .tl-row::before { content:''; position:absolute; left:6px; top:14px; bottom:-6px; width:2px; background:#e2e8f0; }
     .tl-dot { width:12px; height:12px; border-radius:50%; margin-top:4px; background:#cbd5e1; flex:0 0 auto; }
@@ -373,17 +405,11 @@ interface ChatItem {
     .tl-time { margin-left:auto; }
     .tl-label { display:block; margin-top:4px; font-weight:600; text-decoration:none; color:#111827; }
     .tl-actions { display:flex; gap:8px; margin-top:6px; align-items:center; }
-    .status-chip { display:inline-flex; align-items:center; gap:6px; background:#e2e8f0; border-radius:999px; padding:2px 10px; font-size:11px; }
-    .status-chip.unaccepted { background:#fee2e2; color:#991b1b; }
-    .status-chip .ico { font-size:12px; }
 
     /* End-of-chat entity list */
     .entity-summary { margin-top:12px; border:1px solid #e5e7eb; border-radius:12px; padding:12px; }
     .entity-grid { display:grid; gap:10px; }
     .entity-row { display:grid; grid-template-columns: 120px 1fr 160px 1fr; gap:12px; align-items:center; padding:8px 10px; border:1px solid #e5e7eb; border-radius:10px; background:#fff; }
-    .entity-row + .entity-row { }
-    .entity-row .col.name { font-weight:600; }
-    .entity-row .col.actions { display:flex; gap:8px; align-items:center; }
 
     /* Composer */
     .composer-bottom { position:fixed; left:260px; right:0; bottom:0; background:#fff; border-top:1px solid #e5e7eb; padding:10px 16px; display:flex; gap:10px; align-items:flex-end; z-index:4; }
@@ -414,9 +440,9 @@ export class ChatWorkbenchComponent {
   /* left rail */
   historySearch = '';
   history: ChatItem[] = [
-    { id: 'c1', title: '24h total amount feature', summary: 'Created agg feature & drafted velocity rule', updatedAt: new Date() },
-    { id: 'c2', title: 'High-velocity ACH rule tuning', summary: 'Adjusted thresholds, added watchlist action', updatedAt: new Date(Date.now() - 86400000) },
-    { id: 'c3', title: 'Profile transformer ideas', summary: 'Outlined embeddings and clustering approach', updatedAt: new Date(Date.now() - 3*86400000) },
+    { id: 'c1', title: '24h total amount feature', summary: 'Created aggregation feature, drafted velocity rule, and prepared dataset sample for QA and backtesting insights.', status: 'Active', updatedAt: new Date() },
+    { id: 'c2', title: 'High-velocity ACH rule tuning', summary: 'Adjusted thresholds, added watchlist action; compared lift across cohorts and performed cross-validation on last 30 days.', status: 'Completed', updatedAt: new Date(Date.now() - 86400000) },
+    { id: 'c3', title: 'Profile transformer ideas', summary: 'Outlined embeddings & clustering; proposed features for device linkage and time-of-day anomalies with ablations.', status: 'Stopped', updatedAt: new Date(Date.now() - 3*86400000), pending: false },
   ];
   filteredHistory: ChatItem[] = [...this.history];
   activeChatId = 'c1';
@@ -443,7 +469,7 @@ export class ChatWorkbenchComponent {
         expanded: false,
         needsApproval: true,
         approvalAsked: true,
-        thinking: 'Plan: compute 365d moving average per customer on check events; validate missing defaults and hotspot=off.',
+        thinking: 'Plan: compute 365d moving average per customer on check events; set default=0 and hotspot=off.',
         response: ''
       },
       {
@@ -453,7 +479,7 @@ export class ChatWorkbenchComponent {
         expanded: false,
         needsApproval: true,
         approvalAsked: true,
-        thinking: 'Hypothesis: flag RTP when recent amount sum and frequency both exceed thresholds within 10d.',
+        thinking: 'Hypothesis: flag RTP when 10d amount sum >= 5000 AND frequency >= 5.',
         response: ''
       }
     ]
@@ -471,8 +497,17 @@ export class ChatWorkbenchComponent {
   selectChat(id: string) { this.activeChatId = id; }
   newChat() {
     const id = 'c' + (this.history.length + 1);
-    const item: ChatItem = { id, title: 'New Chat', summary: 'Empty', updatedAt: new Date() };
+    const item: ChatItem = {
+      id, title: 'New Chat',
+      summary: 'Kicked off a fresh orchestration to create features, rules, and datasets for investigation.',
+      status: 'Active', updatedAt: new Date(), pending: true
+    };
     this.history.unshift(item); this.filteredHistory = [...this.history]; this.activeChatId = id;
+  }
+  chatHasPending(chat: ChatItem): boolean {
+    if (chat.id !== this.activeChatId) return !!chat.pending;
+    // For active chat: compute from live entities
+    return this.allEntities().some(e => !e.saved && !e.expired);
   }
 
   /* prompt */
@@ -501,10 +536,16 @@ export class ChatWorkbenchComponent {
   openPreview(e: Entity) { this.previewEntity = e; this.previewOpen = true; }
   closePreview() { this.previewOpen = false; this.previewEntity = undefined; }
 
-  /* summary */
+  /* summary drawer */
   toggleSummary(next?: boolean) { this.showSummary = typeof next === 'boolean' ? next : !this.showSummary; }
   scrollToAnchor(anchorId: string) { const el = document.getElementById(anchorId); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-  revertActivity(s: ChatSummaryItem) { if (!s.createdEntityId) return; const e = this.findEntityById(s.createdEntityId); if (e && !e.saved) this.revertEntity(e); }
+  getSummaryStatus(s: ChatSummaryItem): EntityStatus {
+    if (!s.createdEntityId) return 'Accepted';
+    const e = this.findEntityById(s.createdEntityId);
+    if (!e) return s.status || 'Expired';
+    if (e.expired) return 'Expired';
+    return e.saved ? 'Accepted' : 'Pending';
+  }
 
   /* stop controls */
   anyRunRunning(): boolean { return this.runs.some(r => r.status === 'Running'); }
@@ -512,10 +553,12 @@ export class ChatWorkbenchComponent {
   stopRun(run: AgentRun) {
     run.status = 'Stopped';
     run.subAgents.forEach(sa => { if (sa.status === 'Running' || sa.status === 'Idle') sa.status = 'Stopped'; });
+    const active = this.history.find(h => h.id === this.activeChatId);
+    if (active) active.status = 'Stopped';
   }
   stopSubAgent(sa: SubAgent) { if (sa.status === 'Running') sa.status = 'Stopped'; }
 
-  /* approval → generate */
+  /* approval → generate (Approve/Deny) */
   approveSubAgentToGenerate(sa: SubAgent) {
     sa.needsApproval = false;
     sa.status = 'Running';
@@ -527,12 +570,11 @@ export class ChatWorkbenchComponent {
           type: 'feature',
           name: 'AverageCheckAmount365',
           description: 'Average check amount per customer in last 365 days',
-          saved: false,
-          preview: {}
+          saved: false, expired: false, preview: {}
         }];
         this.summary.unshift({
           id: 'sum-' + sa.id, label: 'Feature generated: AverageCheckAmount365', kind: 'feature',
-          anchorId: this.runs[0].anchorId, createdEntityId: sa.generatedEntities[0].id, isSaved: false, time: new Date()
+          anchorId: this.runs[0].anchorId, createdEntityId: sa.generatedEntities[0].id, status: 'Pending', time: new Date()
         });
       } else {
         sa.response = 'Drafted rule: RTP Outgoing Amount & Frequency (10d)';
@@ -541,36 +583,44 @@ export class ChatWorkbenchComponent {
           type: 'rule',
           name: 'RTP Outgoing: High Amount & Frequency (10d)',
           description: 'Trigger when 10d sum >= 5000 AND frequency >= 5',
-          saved: false,
-          preview: {}
+          saved: false, expired: false, preview: {}
         }];
         this.summary.unshift({
           id: 'sum-' + sa.id, label: 'Rule drafted: RTP Outgoing Amount & Frequency (10d)', kind: 'rule',
-          anchorId: this.runs[0].anchorId, createdEntityId: sa.generatedEntities[0].id, isSaved: false, time: new Date()
+          anchorId: this.runs[0].anchorId, createdEntityId: sa.generatedEntities[0].id, status: 'Pending', time: new Date()
         });
       }
       sa.status = 'Completed';
+      const active = this.history.find(h => h.id === this.activeChatId);
+      if (active) active.pending = this.allEntities().some(e => !e.saved && !e.expired);
     }, 500);
   }
-  rejectSubAgent(sa: SubAgent) { sa.needsApproval = false; sa.response = 'User rejected this step.'; sa.status = 'Completed'; }
+  denySubAgent(sa: SubAgent) {
+    sa.needsApproval = false;
+    sa.response = 'User denied this step.';
+    sa.status = 'Completed';
+  }
 
-  /* accept / revert */
+  /* entity Accept / Reject */
   acceptEntity(e: Entity) {
-    e.saved = true;
+    e.saved = true; e.expired = false;
     e.platformUrl = e.type === 'feature'
       ? 'https://app.datavisor.com/features/' + encodeURIComponent(e.name)
       : 'https://app.datavisor.com/rules/' + encodeURIComponent(e.name);
     const s = this.summary.find(x => x.createdEntityId === e.id);
-    if (s) s.isSaved = true;
+    if (s) s.status = 'Accepted';
+    const active = this.history.find(h => h.id === this.activeChatId);
+    if (active) active.pending = this.allEntities().some(x => !x.saved && !x.expired);
   }
-  revertEntity(e: Entity) {
-    this.runs.forEach(r => r.subAgents.forEach(sa => {
-      sa.generatedEntities = (sa.generatedEntities || []).filter(x => x.id !== e.id);
-    }));
+  rejectEntity(e: Entity) {
+    // Mark as expired (kept in the list for traceability, preview disabled by status chips)
+    e.saved = false; e.expired = true;
+    const s = this.summary.find(x => x.createdEntityId === e.id);
+    if (s) s.status = 'Expired';
     if (this.previewEntity?.id === e.id) this.closePreview();
-    this.summary = this.summary.filter(s => s.createdEntityId !== e.id);
+    const active = this.history.find(h => h.id === this.activeChatId);
+    if (active) active.pending = this.allEntities().some(x => !x.saved && !x.expired);
   }
-  removeEntityEverywhere(e: Entity) { this.revertEntity(e); }
 
   /* end-of-chat table helper */
   allEntities(): Entity[] {
