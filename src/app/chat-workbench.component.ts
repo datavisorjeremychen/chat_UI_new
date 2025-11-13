@@ -6,15 +6,15 @@ type Kind = 'feature' | 'rule' | 'dataset' | 'analysis' | 'workflow' | 'other';
 type AgentStatus = 'Running' | 'Completed' | 'Stopped' | 'Idle';
 type EntityStatus = 'Accepted' | 'Pending' | 'Expired';
 type ViewMode = 'user' | 'admin';
+type SummaryLevel = 'run' | 'sub';
 
 interface ChatSummaryItem {
   id: string;
-  label: string;
-  kind: Kind;
   anchorId: string;
-  createdEntityId?: string;
-  status?: EntityStatus;
   time?: Date;
+  agentName: string;   // "Fraud Pattern Analysis" or "Rule Creator"
+  level: SummaryLevel; // 'run' (main agent) or 'sub' (sub-agent)
+  agentId: string;     // run.id or subAgent.id
 }
 
 interface Entity {
@@ -38,12 +38,8 @@ interface SubAgent {
   thinking?: string;
   response?: string;
   generatedEntities?: Entity[];
-
-  // Orchestration & display
   revealed?: boolean;         // render in UI?
   concurrencyGroup?: string;  // same key => concurrent
-
-  // Follow-up
   denied?: boolean;           // last request was denied
   userPrompt?: string;        // local input buffer for follow-up
 }
@@ -79,8 +75,7 @@ interface ChatItem {
       <div class="tabs">
         <button class="tab" [class.active]="viewMode==='user'" (click)="setViewMode('user')">User</button>
         <button class="tab" [class.active]="viewMode==='admin'" [disabled]="!isAdmin" (click)="setViewMode('admin')">
-          Admin
-          <span *ngIf="!isAdmin" class="tab-lock" title="You are not authorized">🔒</span>
+          Admin <span *ngIf="!isAdmin" class="tab-lock" title="You are not authorized">🔒</span>
         </button>
       </div>
 
@@ -278,30 +273,36 @@ interface ChatItem {
       <!-- Floating Summary -->
       <button class="floating-summary-btn" (click)="toggleSummary()">ⓘ Summary</button>
 
-      <!-- Summary Drawer (scrollable, up to 10) -->
+      <!-- Summary Drawer (agent-centric) -->
       <div class="summary-drawer" *ngIf="showSummary">
         <div class="summary-header drawer-head">
-          <h3>Action History</h3>
+          <h3>Summary</h3>
           <button class="btn btn-ghost" (click)="toggleSummary()">✕</button>
         </div>
         <div class="timeline" style="overflow:auto;">
-          <div *ngFor="let s of summary | slice:0:10" class="tl-row">
-            <div class="tl-dot" [ngClass]="s.kind"></div>
+          <div *ngFor="let s of summary" class="tl-row">
+            <div class="tl-dot" [ngClass]="s.level === 'run' ? 'analysis' : 'other'"></div>
             <div class="tl-card">
               <div class="tl-top">
-                <span class="tl-kind">{{ s.kind | titlecase }}</span>
+                <span class="tl-kind">{{ s.level === 'run' ? 'Main Agent' : 'Sub-Agent' }}</span>
                 <span class="tl-time">{{ (s.time || now) | date:'MM/dd HH:mm' }}</span>
               </div>
-              <a href="#" class="tl-label" (click)="scrollToAnchor(s.anchorId); $event.preventDefault(); toggleSummary(false)">{{ s.label }}</a>
-              <div class="tl-actions" *ngIf="s.createdEntityId || s.status">
+              <a href="#" class="tl-label" (click)="scrollToAnchor(s.anchorId); $event.preventDefault(); toggleSummary(false)">
+                {{ s.agentName }}
+              </a>
+              <div class="tl-actions">
                 <span class="status-chip"
-                      [class.pending]="getSummaryStatus(s)==='Pending'"
-                      [class.accepted]="getSummaryStatus(s)==='Accepted'"
-                      [class.expired]="getSummaryStatus(s)==='Expired'">
+                      [class.pending]="getSummaryAgentStatus(s)==='Idle' || getSummaryAgentStatus(s)==='Running'"
+                      [class.accepted]="getSummaryAgentStatus(s)==='Completed'"
+                      [class.expired]="getSummaryAgentStatus(s)==='Stopped'">
                   <span class="ico">
-                    {{ getSummaryStatus(s)==='Expired' ? '⌛' : (getSummaryStatus(s)==='Accepted' ? '✅' : '⏳') }}
+                    {{
+                      getSummaryAgentStatus(s)==='Running' ? '⏳' :
+                      getSummaryAgentStatus(s)==='Stopped' ? '■' :
+                      getSummaryAgentStatus(s)==='Idle' ? '…' : '✅'
+                    }}
                   </span>
-                  {{ getSummaryStatus(s) }}
+                  {{ getSummaryAgentStatus(s) }}
                 </span>
               </div>
             </div>
@@ -417,7 +418,6 @@ interface ChatItem {
 
     .approval-row { display:flex; justify-content:space-between; align-items:center; padding:8px 10px; font-size:12px; background:#fffbeb; border-top:1px dashed #f59e0b; border-bottom:1px dashed #f59e0b; }
     .approval-actions { display:flex; gap:6px; }
-
     .subagent-body { border-top:1px dashed #e5e7eb; padding:8px 10px; display:grid; gap:8px; }
     .thinking-line { display:flex; gap:6px; align-items:flex-start; font-size:12px; color:#334155; background:#f8fafc; border:1px solid #e5e7eb; padding:6px 8px; border-radius:8px; }
     .thinking-line .bulb { opacity:.8; }
@@ -458,9 +458,8 @@ interface ChatItem {
     .tl-row { position:relative; display:flex; gap:10px; margin-bottom:12px; }
     .tl-row::before { content:''; position:absolute; left:6px; top:14px; bottom:-6px; width:2px; background:#e2e8f0; }
     .tl-dot { width:12px; height:12px; border-radius:50%; margin-top:4px; background:#cbd5e1; flex:0 0 auto; }
-    .tl-dot.feature { background:#0ea5e9; }
-    .tl-dot.rule { background:#f59e0b; }
-    .tl-dot.analysis, .tl-dot.workflow, .tl-dot.other { background:#a78bfa; }
+    .tl-dot.analysis { background:#0ea5e9; }
+    .tl-dot.other { background:#a78bfa; }
     .tl-card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:8px 10px; flex:1; }
     .tl-top { display:flex; align-items:center; gap:8px; font-size:11px; color:#64748b; }
     .tl-kind { font-weight:600; }
@@ -494,7 +493,6 @@ export class ChatWorkbenchComponent {
 
   /* left rail */
   historySearch = '';
-
   history: ChatItem[] = [
     { id: 'c1', title: '24h total amount feature', summary: 'Created aggregation feature, drafted velocity rule, and prepared dataset sample for QA and backtesting insights.', updatedAt: new Date(), ownerId: 'u_self', ownerName: 'You' },
     { id: 'c2', title: 'High-velocity ACH rule tuning', summary: 'Adjusted thresholds, added watchlist action; compared lift across cohorts and performed cross-validation on last 30 days.', updatedAt: new Date(Date.now() - 86400000), pendingCount: 0, ownerId: 'u_alex', ownerName: 'Alex Chen' },
@@ -506,7 +504,9 @@ export class ChatWorkbenchComponent {
 
   /* chat state */
   prompt = '';
-  
+  previewOpen = false;
+  previewEntity?: Entity;
+  showSummary = false;
   now = new Date();
 
   runs: AgentRun[] = [{
@@ -556,10 +556,9 @@ export class ChatWorkbenchComponent {
     ]
   }];
 
-  // Include a very old Expired example (> 7 days)
+  // Agent-centric Summary (initial main run)
   summary: ChatSummaryItem[] = [
-    { id: 's_old', label: 'Old rule draft (auto-expire example)', kind: 'rule', anchorId: 'anchor-r1', status: 'Expired', time: new Date(Date.now() - 9*86400000) },
-    { id: 's1', label: 'Started: Fraud Pattern Analysis', kind: 'analysis', anchorId: 'anchor-r1', time: new Date() }
+    { id: 's1', anchorId: 'anchor-r1', time: new Date(), agentName: 'Fraud Pattern Analysis', level: 'run', agentId: 'r1' }
   ];
 
   constructor() {
@@ -635,27 +634,41 @@ export class ChatWorkbenchComponent {
       ]
     };
     this.runs.unshift(newRun);
-    this.summary.unshift({ id: 's-' + runId, label: 'Started: ' + newRun.name, kind: 'analysis', anchorId, time: new Date() });
+
+    // Add run-level summary row
+    this.summary.unshift({
+      id: 's-' + runId,
+      anchorId,
+      time: new Date(),
+      agentName: newRun.name,
+      level: 'run',
+      agentId: runId
+    });
+
     this.prompt = '';
   }
   copyPrompt() { const text = this.prompt || ''; navigator.clipboard?.writeText(text).catch(() => {}); }
 
   /* preview */
-  previewOpen = false;
-  previewEntity?: Entity;
   openPreview(e: Entity) { this.previewEntity = e; this.previewOpen = true; }
   closePreview() { this.previewOpen = false; this.previewEntity = undefined; }
 
   /* summary drawer */
-  showSummary = false;
   toggleSummary(next?: boolean) { this.showSummary = typeof next === 'boolean' ? next : !this.showSummary; }
   scrollToAnchor(anchorId: string) { const el = document.getElementById(anchorId); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-  getSummaryStatus(s: ChatSummaryItem): EntityStatus {
-    if (!s.createdEntityId) return s.status || 'Expired';
-    const e = this.findEntityById(s.createdEntityId);
-    if (!e) return s.status || 'Expired';
-    if (e.expired) return 'Expired';
-    return e.saved ? 'Accepted' : 'Pending';
+
+  // Live status lookup for Summary panel
+  getSummaryAgentStatus(item: ChatSummaryItem): AgentStatus {
+    if (item.level === 'run') {
+      const r = this.runs.find(x => x.id === item.agentId);
+      return r?.status ?? 'Completed';
+    } else {
+      for (const r of this.runs) {
+        const sa = r.subAgents.find(s => s.id === item.agentId);
+        if (sa) return sa.status;
+      }
+      return 'Completed';
+    }
   }
 
   /* stop controls */
@@ -669,6 +682,16 @@ export class ChatWorkbenchComponent {
 
   /* approval → generate */
   approveSubAgentToGenerate(run: AgentRun, sa: SubAgent) {
+    // Add sub-agent row into Summary at approval time
+    this.summary.unshift({
+      id: 's-' + sa.id + '-' + Date.now(),
+      anchorId: run.anchorId,
+      time: new Date(),
+      agentName: sa.name,
+      level: 'sub',
+      agentId: sa.id
+    });
+
     sa.needsApproval = false;
     sa.denied = false;
     sa.status = 'Running';
@@ -684,10 +707,6 @@ export class ChatWorkbenchComponent {
           description: 'Average check amount per customer in last 365 days',
           saved: false, expired: false, preview: {}
         }];
-        this.summary.unshift({
-          id: 'sum-' + sa.id, label: 'Feature generated: AverageCheckAmount365', kind: 'feature',
-          anchorId: run.anchorId, createdEntityId: sa.generatedEntities[0].id, status: 'Pending', time: new Date()
-        });
         setTimeout(() => { sa.status = 'Completed'; this.maybeRevealNext(run, sa); this.updatePendingBadge(); this.bumpActiveChatTimestamp(); }, 400);
       } else if (sa.name.toLowerCase().includes('rule creator')) {
         sa.response = 'Drafted rule: RTP Outgoing Amount & Frequency (10d)';
@@ -698,10 +717,6 @@ export class ChatWorkbenchComponent {
           description: 'Trigger when 10d sum >= 5000 AND frequency >= 5',
           saved: false, expired: false, preview: {}
         }];
-        this.summary.unshift({
-          id: 'sum-' + sa.id, label: 'Rule drafted: RTP Outgoing Amount & Frequency (10d)', kind: 'rule',
-          anchorId: run.anchorId, createdEntityId: sa.generatedEntities[0].id, status: 'Pending', time: new Date()
-        });
         sa.status = 'Completed';
         this.maybeRevealNext(run, sa);
         this.updatePendingBadge();
@@ -744,14 +759,16 @@ export class ChatWorkbenchComponent {
     sa.expanded = true;
     sa.revealed = true;
 
-    // Log in summary & update timestamps/badges
+    // Log sub-agent in Summary again (as it re-enters flow)
     this.summary.unshift({
       id: 'fu-' + sa.id + '-' + Date.now(),
-      label: `User follow-up to ${sa.name}`,
-      kind: 'other',
       anchorId: run.anchorId,
-      time: new Date()
+      time: new Date(),
+      agentName: sa.name,
+      level: 'sub',
+      agentId: sa.id
     });
+
     this.bumpActiveChatTimestamp();
     this.updatePendingBadge();
   }
@@ -778,14 +795,10 @@ export class ChatWorkbenchComponent {
     e.platformUrl = e.type === 'feature'
       ? 'https://app.datavisor.com/features/' + encodeURIComponent(e.name)
       : 'https://app.datavisor.com/rules/' + encodeURIComponent(e.name);
-    const s = this.summary.find(x => x.createdEntityId === e.id);
-    if (s) s.status = 'Accepted';
     this.updatePendingBadge();
   }
   rejectEntity(e: Entity) {
     e.saved = false; e.expired = true;
-    const s = this.summary.find(x => x.createdEntityId === e.id);
-    if (s) s.status = 'Expired';
     if (this.previewEntity?.id === e.id) this.closePreview();
     this.updatePendingBadge();
   }
@@ -822,12 +835,5 @@ export class ChatWorkbenchComponent {
   private bumpActiveChatTimestamp() {
     const active = this.history.find(h => h.id === this.activeChatId);
     if (active) { active.updatedAt = new Date(); this.computeFilteredHistory(); }
-  }
-  private findEntityById(id: string): Entity | undefined {
-    for (const r of this.runs) for (const sa of r.subAgents) {
-      const found = (sa.generatedEntities || []).find(e => e.id === id);
-      if (found) return found;
-    }
-    return undefined;
   }
 }
